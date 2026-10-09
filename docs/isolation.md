@@ -1,8 +1,8 @@
-\# Database Isolation Experiments
+# Database Isolation Experiments
 
 
 
-\## 1. Purpose
+## 1. Purpose
 
 
 
@@ -10,7 +10,7 @@ This document explains how database isolation affects wallet transfers when mult
 
 
 
-\## 2. The Problem
+## 2. The Problem
 
 
 
@@ -22,7 +22,7 @@ This can cause the wallet balance to become negative or allow more money to be s
 
 
 
-\## 3. Experiment Plan
+## 3. Experiment Plan
 
 
 
@@ -30,13 +30,13 @@ We will compare two approaches:
 
 
 
-1\. \*\*Without row locks:\*\* Run concurrent transfers and observe whether a race condition occurs.
+1. **Without row locks:** Run concurrent transfers and observe whether a race condition occurs.
 
-2\. \*\*With row locks:\*\* Lock the required wallet rows in a consistent order before checking balances and updating the ledger.
+2. **With row locks:** Lock the required wallet rows in a consistent order before checking balances and updating the ledger.
 
 
 
-\## 4. Safe Transfer Approach
+## 4. Safe Transfer Approach
 
 
 
@@ -44,23 +44,23 @@ The safe transfer function should:
 
 
 
-\* Lock the source and destination wallet rows.
+* Lock the source and destination wallet rows.
 
-\* Lock wallets in ascending wallet ID order to reduce deadlock risk.
+* Lock wallets in ascending wallet ID order to reduce deadlock risk.
 
-\* Check the source wallet balance after obtaining the lock.
+* Check the source wallet balance after obtaining the lock.
 
-\* Reject transfers that would make the wallet balance negative.
+* Reject transfers that would make the wallet balance negative.
 
-\* Write balanced debit and credit ledger entries in the same database transaction.
-
-
-
-\## 5. Results
+* Write balanced debit and credit ledger entries in the same database transaction.
 
 
 
-\### Concurrent Transfer Experiment
+## 5. Results
+
+
+
+### Concurrent Transfer Experiment
 
 
 
@@ -72,7 +72,7 @@ We then sent 100 concurrent transfer requests using 20 worker threads. Each requ
 
 
 
-\*\*Observed results:\*\*
+**Observed results:**
 
 
 
@@ -96,7 +96,7 @@ We then sent 100 concurrent transfer requests using 20 worker threads. Each requ
 
 
 
-\### Conclusion
+### Conclusion
 
 
 
