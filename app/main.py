@@ -32,7 +32,12 @@ def health():
     try:
         with get_connection() as conn:
             conn.execute("SELECT 1")
-        return {"status": "ok", "database": "connected"}
+
+        return {
+            "status": "ok",
+            "database": "connected",
+        }
+
     except Exception:
         raise HTTPException(
             status_code=503,
@@ -68,6 +73,7 @@ def get_wallet_balance(wallet_id: int):
 
     except HTTPException:
         raise
+
     except Exception:
         raise HTTPException(
             status_code=500,
@@ -102,8 +108,21 @@ def create_transfer(request: TransferRequest):
     except Exception as exc:
         message = str(exc)
 
+        # Reusing a key with different request details returns HTTP 422.
+        if (
+            "Idempotency key" in message
+            and "different details" in message
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail=message,
+            )
+
         if "Insufficient wallet balance" in message:
-            raise HTTPException(status_code=400, detail=message)
+            raise HTTPException(
+                status_code=400,
+                detail=message,
+            )
 
         if (
             "Idempotency key" in message
@@ -113,7 +132,10 @@ def create_transfer(request: TransferRequest):
             or "wallet" in message
             or "currency" in message
         ):
-            raise HTTPException(status_code=400, detail=message)
+            raise HTTPException(
+                status_code=400,
+                detail=message,
+            )
 
         raise HTTPException(
             status_code=500,
