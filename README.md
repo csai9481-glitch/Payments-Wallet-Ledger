@@ -1,116 +1,56 @@
-\# Payments-Grade Wallet Ledger
+# Payments-Grade Wallet Ledger
 
+## About the Project
 
+This project is a simple digital wallet system built using Python, FastAPI, and PostgreSQL.
 
-\## About the Project
+Users can check wallet balances, view transaction history, and transfer money between wallets.
 
+## Features
 
+- Check wallet balance.
+- View wallet transaction history.
+- Transfer money between wallets.
+- Prevent transfers when the balance is insufficient.
+- Use idempotency keys to prevent duplicate transfers.
+- Record debit and credit entries in the ledger.
+- Validate wallet status and currency.
+- Run automated tests.
 
-This is a wallet ledger project built using Python, FastAPI, and PostgreSQL.
+## Technologies Used
 
+- Python
+- FastAPI
+- PostgreSQL
+- Docker
+- Pytest
 
+## How to Run
 
-The main goal of this project is to understand how a wallet system works. Users can check their wallet balance and transfer money to another wallet.
+1. Start Docker Desktop.
+2. Open CMD in the project folder.
+3. Start the database: `docker compose up -d`
+4. Install packages: `python -m pip install -r requirements.txt`
+5. Start the API: `python -m uvicorn app.main:app --reload`
+6. Open http://127.0.0.1:8000/docs in your browser.
 
+## How to Run Tests
 
+Run: `python -m pytest -v`
 
-\## What This Project Can Do
+The tests check API endpoints, wallet balances, transfers, idempotency, and transaction statements.
 
+## Database Design
 
+PostgreSQL stores users, wallets, transfers, and ledger entries. SQL migration files create the tables and database functions. Money is stored in paise to avoid floating-point calculations.
 
-\* Check the balance of a wallet.
+## What I Learned
 
-\* Transfer money between two wallets.
+I am learning to build backend APIs, use PostgreSQL, manage wallet transfers, prevent duplicate requests, and maintain consistent financial records.
 
-\* Prevent transfers when there is not enough balance.
+## Future Improvements
 
-\* Store transaction details in the database.
-
-\* Avoid processing the same transfer more than once using an idempotency key.
-
-\* Keep the debit and credit entries consistent.
-
-\* Run tests to check whether the API works correctly.
-
-
-
-\## Technologies Used
-
-
-
-\* Python
-
-\* FastAPI
-
-\* PostgreSQL
-
-\* Docker
-
-\* Pytest
-
-
-
-\## How to Run the Project
-
-
-
-1\. Start Docker Desktop.
-
-
-
-2\. Open Command Prompt in the project folder.
-
-
-
-3\. Start the database using:
-
-
-
-&#x20;  `docker compose up -d`
-
-
-
-4\. Install the required packages:
-
-
-
-&#x20;  `python -m pip install -r requirements.txt`
-
-
-
-5\. Start the API:
-
-
-
-&#x20;  `python -m uvicorn app.main:app --reload`
-
-
-
-6\. Open `http://127.0.0.1:8000/docs` in your browser to try the API.
-
-
-
-\## How to Run Tests
-
-
-
-Run this command in Command Prompt:
-
-
-
-`python -m pytest -v`
-
-
-
-The tests check the API endpoints and wallet balance responses.
-
-
-
-\## What I Learned
-
-
-
-Through this project, I am learning how to build backend APIs, work with PostgreSQL, manage wallet transactions, and use database transactions to keep financial records consistent.
-
-
-
+- Add authentication and authorization.
+- Improve transfer failure and reversal handling.
+- Add more concurrency and security tests.
+- Run the API and database together using Docker Compose.
