@@ -60,7 +60,55 @@ The safe transfer function should:
 
 
 
-Results will be added after running the experiments against the project database. No experimental results are claimed yet.
+\### Concurrent Transfer Experiment
+
+
+
+We created a separate test sender wallet (wallet 3) and receiver wallet (wallet 4). The sender was funded with 500 paise (₹5.00).
+
+
+
+We then sent 100 concurrent transfer requests using 20 worker threads. Each request attempted to transfer 10 paise (₹0.10).
+
+
+
+\*\*Observed results:\*\*
+
+
+
+| Check                       |    Result |
+
+| --------------------------- | --------: |
+
+| Concurrent requests         |       100 |
+
+| Successful transfers        |        50 |
+
+| Rejected requests           |        50 |
+
+| Recorded transfers          |        50 |
+
+| Sender balance after test   |   0 paise |
+
+| Receiver balance after test | 500 paise |
+
+| Unbalanced transfers        |         0 |
+
+
+
+\### Conclusion
+
+
+
+The experiment passed. The sender could not spend more money than the wallet contained. Exactly 50 transfers succeeded, and the remaining 50 requests were rejected. Each recorded transfer had two balanced ledger entries.
+
+
+
+The transfer function locks both wallet rows in ascending wallet ID order before checking the sender's balance. This helps prevent concurrent transfers from spending the same funds twice.
+
+
+
+This experiment tested the locked transfer implementation. A separate experiment without row locks is still needed to demonstrate the race condition directly.
 
 
 
