@@ -1,7 +1,6 @@
 
 from uuid import uuid4
 
-import pytest
 from fastapi.testclient import TestClient
 
 from app.db import get_connection
@@ -53,9 +52,7 @@ def create_test_wallets():
         ).fetchone()[0]
 
         conn.execute(
-            """
-            SELECT fund_wallet(%s, %s, %s, %s)
-            """,
+            "SELECT fund_wallet(%s, %s, %s, %s)",
             (f"test-funding-{suffix}", sender_wallet, 1000, "INR"),
         )
 
@@ -63,6 +60,7 @@ def create_test_wallets():
 
 
 def get_balance(wallet_id):
+    """Return a wallet's balance in minor currency units (paise)."""
     with get_connection() as conn:
         row = conn.execute(
             """
@@ -78,12 +76,14 @@ def get_balance(wallet_id):
 
 def test_home_endpoint():
     response = client.get("/")
+
     assert response.status_code == 200
     assert response.json()["message"] == "Wallet Ledger API is running"
 
 
 def test_health_endpoint():
     response = client.get("/health")
+
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
     assert response.json()["database"] == "connected"
@@ -91,7 +91,9 @@ def test_health_endpoint():
 
 def test_alice_wallet_balance():
     response = client.get("/wallets/1/balance")
+
     assert response.status_code == 200
+
     data = response.json()
     assert data["wallet_id"] == 1
     assert data["currency"] == "INR"
@@ -101,7 +103,9 @@ def test_alice_wallet_balance():
 
 def test_bob_wallet_balance():
     response = client.get("/wallets/2/balance")
+
     assert response.status_code == 200
+
     data = response.json()
     assert data["wallet_id"] == 2
     assert data["currency"] == "INR"
@@ -111,6 +115,7 @@ def test_bob_wallet_balance():
 
 def test_missing_wallet():
     response = client.get("/wallets/999999/balance")
+
     assert response.status_code == 404
     assert response.json()["detail"] == "Wallet not found"
 
@@ -168,6 +173,7 @@ def test_idempotency_key_with_different_amount_returns_422():
     }
 
     first_response = client.post("/transfers", json=payload)
+
     assert first_response.status_code == 200
 
     changed_payload = {
@@ -176,7 +182,47 @@ def test_idempotency_key_with_different_amount_returns_422():
     }
 
     second_response = client.post("/transfers", json=changed_payload)
-    assert second_response.status_code == 422
 
+    assert second_response.status_code == 422
     assert get_balance(sender) == 900
     assert get_balance(receiver) == 100
+
+
+def test_completed_transfers_have_balanced_ledger_entries():
+    """Check that every completed transfer has at least two entries and nets to zero."""
+    with get_connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT
+                t.transfer_id,
+                COUNT(le.ledger_entry_id) AS entry_count,
+                COALESCE(
+                    SUM(
+                        CASE
+                            WHEN le.entry_type = 'debit'
+                                THEN le.amount_minor
+                            ELSE -le.amount_minor
+                        END
+                    ),
+                    0
+                ) AS net_difference
+            FROM transfers t
+            LEFT JOIN ledger_entries le
+                ON le.transfer_id = t.transfer_id
+            WHERE t.status = 'completed'
+            GROUP BY t.transfer_id
+            HAVING COUNT(le.ledger_entry_id) < 2
+                OR COALESCE(
+                    SUM(
+                        CASE
+                            WHEN le.entry_type = 'debit'
+                                THEN le.amount_minor
+                            ELSE -le.amount_minor
+                        END
+                    ),
+                    0
+                ) <> 0
+            """
+        ).fetchall()
+
+    assert rows == [], f"Unbalanced completed transfers found: {rows}"
