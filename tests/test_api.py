@@ -11,7 +11,7 @@ client = TestClient(app)
 
 
 def create_test_wallets():
-    """Create two dedicated wallets for an idempotency test."""
+    """Create two dedicated wallets for testing."""
     suffix = uuid4().hex
 
     with get_connection() as conn:
@@ -60,7 +60,7 @@ def create_test_wallets():
 
 
 def get_balance(wallet_id):
-    """Return a wallet's balance in minor currency units (paise)."""
+    """Return the wallet balance in paise."""
     with get_connection() as conn:
         row = conn.execute(
             """
@@ -76,14 +76,12 @@ def get_balance(wallet_id):
 
 def test_home_endpoint():
     response = client.get("/")
-
     assert response.status_code == 200
     assert response.json()["message"] == "Wallet Ledger API is running"
 
 
 def test_health_endpoint():
     response = client.get("/health")
-
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
     assert response.json()["database"] == "connected"
@@ -91,7 +89,6 @@ def test_health_endpoint():
 
 def test_alice_wallet_balance():
     response = client.get("/wallets/1/balance")
-
     assert response.status_code == 200
 
     data = response.json()
@@ -103,7 +100,6 @@ def test_alice_wallet_balance():
 
 def test_bob_wallet_balance():
     response = client.get("/wallets/2/balance")
-
     assert response.status_code == 200
 
     data = response.json()
@@ -115,7 +111,6 @@ def test_bob_wallet_balance():
 
 def test_missing_wallet():
     response = client.get("/wallets/999999/balance")
-
     assert response.status_code == 404
     assert response.json()["detail"] == "Wallet not found"
 
@@ -173,14 +168,9 @@ def test_idempotency_key_with_different_amount_returns_422():
     }
 
     first_response = client.post("/transfers", json=payload)
-
     assert first_response.status_code == 200
 
-    changed_payload = {
-        **payload,
-        "amount_minor": 200,
-    }
-
+    changed_payload = {**payload, "amount_minor": 200}
     second_response = client.post("/transfers", json=changed_payload)
 
     assert second_response.status_code == 422
@@ -189,7 +179,7 @@ def test_idempotency_key_with_different_amount_returns_422():
 
 
 def test_completed_transfers_have_balanced_ledger_entries():
-    """Check that every completed transfer has at least two entries and nets to zero."""
+    """Check that completed transfers have balanced ledger entries."""
     with get_connection() as conn:
         rows = conn.execute(
             """
@@ -226,3 +216,106 @@ def test_completed_transfers_have_balanced_ledger_entries():
         ).fetchall()
 
     assert rows == [], f"Unbalanced completed transfers found: {rows}"
+
+
+def test_wallet_statement_returns_transactions_newest_first():
+    sender, receiver = create_test_wallets()
+    key = f"statement-test-{uuid4().hex}"
+
+    response = client.post(
+        "/transfers",
+        json={
+            "idempotency_key": key,
+            "source_wallet_id": sender,
+            "destination_wallet_id": receiver,
+            "amount_minor": 100,
+            "currency": "INR",
+        },
+    )
+    assert response.status_code == 200
+
+    statement = client.get(
+        f"/wallets/{sender}/statement?limit=10&offset=0"
+    )
+    assert statement.status_code == 200
+
+    data = statement.json()
+    assert data["wallet_id"] == sender
+    assert data["total"] == 2
+    assert len(data["transactions"]) == 2
+
+    transactions = data["transactions"]
+    timestamps = [item["created_at"] for item in transactions]
+    assert timestamps == sorted(timestamps, reverse=True)
+
+    assert any(
+        item["entry_type"] == "debit"
+        and item["amount_minor"] == 100
+        for item in transactions
+    )
+
+
+def test_wallet_statement_pagination():
+    sender, receiver = create_test_wallets()
+
+    for _ in range(3):
+        response = client.post(
+            "/transfers",
+            json={
+                "idempotency_key": f"statement-page-{uuid4().hex}",
+                "source_wallet_id": sender,
+                "destination_wallet_id": receiver,
+                "amount_minor": 10,
+                "currency": "INR",
+            },
+        )
+        assert response.status_code == 200
+
+    first_page = client.get(
+        f"/wallets/{sender}/statement?limit=2&offset=0"
+    )
+    second_page = client.get(
+        f"/wallets/{sender}/statement?limit=2&offset=2"
+    )
+
+    assert first_page.status_code == 200
+    assert second_page.status_code == 200
+
+    first_data = first_page.json()
+    second_data = second_page.json()
+
+    assert first_data["total"] == 4
+    assert second_data["total"] == 4
+    assert len(first_data["transactions"]) == 2
+    assert len(second_data["transactions"]) == 2
+
+    first_ids = {
+        item["ledger_entry_id"]
+        for item in first_data["transactions"]
+    }
+    second_ids = {
+        item["ledger_entry_id"]
+        for item in second_data["transactions"]
+    }
+
+    assert first_ids.isdisjoint(second_ids)
+
+
+def test_wallet_statement_rejects_invalid_pagination():
+    assert client.get(
+        "/wallets/1/statement?limit=0"
+    ).status_code == 422
+
+    assert client.get(
+        "/wallets/1/statement?limit=101"
+    ).status_code == 422
+
+    assert client.get(
+        "/wallets/1/statement?offset=-1"
+    ).status_code == 422
+
+
+def test_wallet_statement_missing_wallet():
+    response = client.get("/wallets/999999/statement")
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Wallet not found"
