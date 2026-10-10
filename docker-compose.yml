@@ -17,5 +17,28 @@ services:
       timeout: 5s
       retries: 5
 
+  api:
+    build: .
+    container_name: wallet_api
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://wallet_user:wallet_dev_password@db:5432/wallet_db
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  worker:
+    build: .
+    container_name: wallet_worker
+    restart: unless-stopped
+    command: ["python", "-m", "app.worker"]
+    environment:
+      DATABASE_URL: postgresql://wallet_user:wallet_dev_password@db:5432/wallet_db
+    depends_on:
+      db:
+        condition: service_healthy
+
 volumes:
   wallet_data:
