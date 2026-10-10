@@ -1,4 +1,6 @@
 
+import os
+import secrets
 from typing import Annotated
 
 from fastapi import FastAPI, Header, HTTPException, Query
@@ -9,8 +11,11 @@ from app.db import get_connection
 
 app = FastAPI(
     title="Payments-Grade Wallet Ledger",
-    description="A simple API for wallet balances, statements, and transfers.",
-    version="1.1.0",
+    description=(
+        "A wallet ledger API for balances, statements, "
+        "transfers, and reconciliation."
+    ),
+    version="1.5.0",
 )
 
 
@@ -19,6 +24,23 @@ class TransferRequest(BaseModel):
     destination_wallet_id: int = Field(gt=0)
     amount_minor: int = Field(gt=0)
     currency: Annotated[str, Field(min_length=3, max_length=3)] = "INR"
+
+
+def verify_admin_token(token: str | None) -> None:
+    """Reject admin requests without a valid configured token."""
+    expected_token = os.getenv("ADMIN_API_TOKEN")
+
+    if not expected_token:
+        raise HTTPException(
+            status_code=503,
+            detail="Admin operations are not configured",
+        )
+
+    if not token or not secrets.compare_digest(token, expected_token):
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid or missing admin token",
+        )
 
 
 @app.get("/")
@@ -55,7 +77,10 @@ def get_wallet_balance(wallet_id: int):
             ).fetchone()
 
         if row is None:
-            raise HTTPException(status_code=404, detail="Wallet not found")
+            raise HTTPException(
+                status_code=404,
+                detail="Wallet not found",
+            )
 
         return {
             "wallet_id": row[0],
@@ -153,7 +178,10 @@ def get_wallet_statement(
 @app.post("/transfers")
 def create_transfer(
     request: TransferRequest,
-    idempotency_key: Annotated[str, Header(alias="Idempotency-Key", min_length=1, max_length=255)],
+    idempotency_key: Annotated[
+        str,
+        Header(alias="Idempotency-Key", min_length=1, max_length=255),
+    ],
 ):
     try:
         with get_connection() as conn:
@@ -170,13 +198,40 @@ def create_transfer(
                 ),
             ).fetchone()
 
+            if row is None:
+                raise HTTPException(
+                    status_code=500,
+                    detail="Transfer function returned no result",
+                )
+
+            transfer_id = row[0]
+
+            status_row = conn.execute(
+                """
+                SELECT status
+                FROM transfers
+                WHERE transfer_id = %s
+                """,
+                (transfer_id,),
+            ).fetchone()
+
+            if status_row is None:
+                raise HTTPException(
+                    status_code=500,
+                    detail="Transfer record was not found",
+                )
+
+            transfer_status = status_row[0]
+
         return {
-            "transfer_id": row[0],
-            "status": "completed",
+            "transfer_id": transfer_id,
+            "status": transfer_status,
             "amount_minor": request.amount_minor,
             "currency": request.currency,
         }
 
+    except HTTPException:
+        raise
     except Exception as exc:
         message = str(exc)
 
@@ -199,4 +254,120 @@ def create_transfer(
         raise HTTPException(
             status_code=500,
             detail="Transfer could not be completed",
+        )
+
+
+@app.post("/admin/transfers/{transfer_id}/release")
+def release_transfer(
+    transfer_id: int,
+    x_admin_token: Annotated[
+        str | None,
+        Header(alias="X-Admin-Token"),
+    ] = None,
+):
+    verify_admin_token(x_admin_token)
+
+    try:
+        with get_connection() as conn:
+            row = conn.execute(
+                """
+                SELECT release_held_transfer(%s, %s)
+                """,
+                (transfer_id, "admin-api"),
+            ).fetchone()
+
+            if row is None:
+                raise HTTPException(
+                    status_code=500,
+                    detail="Release function returned no result",
+                )
+
+        return {
+            "transfer_id": row[0],
+            "status": "completed",
+            "message": "Held transfer released successfully",
+        }
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        message = str(exc)
+
+        if "Transfer not found" in message:
+            raise HTTPException(status_code=404, detail=message)
+
+        if "Transfer is not held" in message:
+            raise HTTPException(status_code=409, detail=message)
+
+        if (
+            "Insufficient wallet balance" in message
+            or "Both wallets must be active" in message
+            or "currency" in message.lower()
+        ):
+            raise HTTPException(status_code=400, detail=message)
+
+        raise HTTPException(
+            status_code=500,
+            detail="Transfer release could not be completed",
+        )
+
+
+@app.post("/admin/reconciliation/run")
+def run_reconciliation(
+    x_admin_token: Annotated[
+        str | None,
+        Header(alias="X-Admin-Token"),
+    ] = None,
+):
+    verify_admin_token(x_admin_token)
+
+    try:
+        with get_connection() as conn:
+            row = conn.execute(
+                "SELECT run_reconciliation()"
+            ).fetchone()
+
+            if row is None or row[0] is None:
+                raise HTTPException(
+                    status_code=500,
+                    detail="Reconciliation did not return a run ID",
+                )
+
+            run_id = row[0]
+
+            result = conn.execute(
+                """
+                SELECT
+                    status,
+                    checks_passed,
+                    issues_found,
+                    started_at,
+                    finished_at
+                FROM reconciliation_runs
+                WHERE run_id = %s
+                """,
+                (run_id,),
+            ).fetchone()
+
+            if result is None:
+                raise HTTPException(
+                    status_code=500,
+                    detail="Reconciliation result was not found",
+                )
+
+        return {
+            "run_id": run_id,
+            "status": result[0],
+            "checks_passed": result[1],
+            "issues_found": result[2],
+            "started_at": result[3].isoformat() if result[3] else None,
+            "finished_at": result[4].isoformat() if result[4] else None,
+        }
+
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(
+            status_code=500,
+            detail="Reconciliation could not be completed",
         )

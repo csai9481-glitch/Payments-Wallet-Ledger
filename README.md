@@ -2,72 +2,113 @@
 
 ## About the Project
 
-This project is a digital wallet system built using Python, FastAPI, and PostgreSQL.
+This project is a digital wallet system built using Python, FastAPI, and PostgreSQL. It allows users to check wallet balances, view transaction history, and transfer money between wallets.
 
-Users can check wallet balances, view transaction history, and transfer money between wallets.
+It also includes a ledger, fraud checks, reconciliation, and protected admin operations.
 
 ## Features
 
-* Check wallet balances.
-* View wallet transaction history.
-* Transfer money between wallets.
-* Prevent transfers when the balance is insufficient.
-* Use idempotency keys to prevent duplicate transfers.
-* Record debit and credit entries in the ledger.
-* Validate wallet status and currency.
-* Run automated tests.
+- Check wallet balances.
+- View transaction history with pagination.
+- Transfer money between wallets.
+- Prevent transfers when funds are insufficient.
+- Use idempotency keys to prevent duplicate transfers.
+- Record debit and credit ledger entries.
+- Validate wallet status and currency.
+- Handle concurrent transfers safely.
+- Flag risky transfers for review.
+- Run reconciliation checks and save the results.
+- Protect administrative endpoints with an admin token.
+- Release held transfers safely.
+- Run automated tests.
 
 ## Technologies Used
 
-* Python
-* FastAPI
-* PostgreSQL
-* Docker
-* Pytest
+- Python
+- FastAPI
+- PostgreSQL
+- Docker and Docker Compose
+- Pytest
+- Git and GitHub
+
+## Project Structure
+
+- `app/` - API and worker code.
+- `migrations/` - SQL database migrations.
+- `tests/` - Automated tests.
+- `docs/` - Database design and transaction isolation notes.
+- `docker-compose.yml` - Docker services.
+- `Dockerfile` - API container setup.
+- `requirements.txt` - Python dependencies.
 
 ## How to Run
 
-1. Start Docker Desktop.
+### 1. Start Docker Desktop
 
-2. Open Command Prompt in the project folder.
+Make sure Docker Desktop is running.
 
-3. Start PostgreSQL:
+### 2. Configure the admin token
 
-   `docker compose up -d db`
+Create a local `.env` file in the project folder with a strong, private `ADMIN_API_TOKEN` value.
 
-4. Install the required Python packages:
+Do not commit `.env` to GitHub or share the token.
 
-   `python -m pip install -r requirements.txt`
+### 3. Start the services
 
-5. Apply the database migrations in order, from `001_initial_schema.sql` to `006_transfer_function.sql`. Follow the database setup instructions in the project documentation.
+Run:
 
-6. Start the API:
+`docker compose up -d --build`
 
-   `python -m uvicorn app.main:app --reload`
+### 4. Open the API documentation
 
-7. Open the API documentation in your browser:
+Open this address in your browser:
 
-   `http://127.0.0.1:8000/docs`
+`http://127.0.0.1:8000/docs`
+
+### 5. Check the API health
+
+Open:
+
+`http://127.0.0.1:8000/health`
+
+## Database Setup
+
+The SQL migrations are in the `migrations/` folder and must be applied in numerical order for a fresh database.
+
+The migrations include the initial schema, seed data, wallet funding, transfers, reconciliation, fraud checks, audit records, and held-transfer release.
+
+Do not rerun migrations against an existing database without checking which migrations have already been applied.
+
+## API Endpoints
+
+- `GET /` - Project information.
+- `GET /health` - API and database health.
+- `GET /wallets/{wallet_id}/balance` - Wallet balance.
+- `GET /wallets/{wallet_id}/statement` - Wallet transaction history.
+- `POST /transfers` - Transfer money between wallets.
+- `POST /admin/reconciliation/run` - Run reconciliation.
+- `POST /admin/transfers/{transfer_id}/release` - Release a held transfer.
+
+Admin endpoints require the `X-Admin-Token` request header. Requests without a valid token are rejected.
+
+## Reconciliation
+
+Reconciliation checks whether wallet balances and ledger records are consistent. Results are saved in the database.
+
+The project includes a manual admin endpoint and a worker that runs checks on a schedule.
+
+## Money and Ledger Safety
+
+Money amounts are stored in paise using integer minor units.
+
+Transfers use database transactions and wallet locking to help prevent inconsistent balances and overspending. Idempotency keys help prevent duplicate transfer requests.
+
+Debit and credit ledger entries record the movement of money.
 
 ## How to Run Tests
 
-Run this command:
+Run:
 
 `python -m pytest -v`
 
-The tests check API endpoints, wallet balances, idempotency, ledger entries, and transaction statements.
-
-## Database Design
-
-PostgreSQL stores users, wallets, transfers, and ledger entries. SQL migration files create the database tables, views, and functions. Money amounts are stored in paise to avoid floating-point calculation errors.
-
-## What I Learned
-
-I learned the basics of building backend APIs, using PostgreSQL, handling wallet transfers, preventing duplicate requests, and maintaining consistent financial records.
-
-## Future Improvements
-
-* Add authentication and authorization.
-* Improve transfer failure and reversal handling.
-* Add more concurrency and security tests.
-* Add automated database migration setup.
+The tests cover API endpoints, wallet balances, transfers, idempotency,
