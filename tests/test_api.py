@@ -128,7 +128,7 @@ def test_repeated_transfer_uses_same_transfer():
     }
 
     responses = [
-        client.post("/transfers", json=payload)
+        client.post("/transfers", json=payload, headers={"Idempotency-Key": key})
         for _ in range(5)
     ]
 
@@ -167,7 +167,7 @@ def test_idempotency_key_with_different_amount_returns_422():
         "currency": "INR",
     }
 
-    first_response = client.post("/transfers", json=payload)
+    first_response = client.post("/transfers", json=payload, headers={"Idempotency-Key": key})
     assert first_response.status_code == 200
 
     changed_payload = {**payload, "amount_minor": 200}
@@ -224,8 +224,8 @@ def test_wallet_statement_returns_transactions_newest_first():
 
     response = client.post(
         "/transfers",
+        headers={"Idempotency-Key": key},
         json={
-            "idempotency_key": key,
             "source_wallet_id": sender,
             "destination_wallet_id": receiver,
             "amount_minor": 100,
@@ -261,6 +261,7 @@ def test_wallet_statement_pagination():
     for _ in range(3):
         response = client.post(
             "/transfers",
+            headers={"Idempotency-Key": f"statement-page-{uuid4().hex}"},
             json={
                 "idempotency_key": f"statement-page-{uuid4().hex}",
                 "source_wallet_id": sender,
