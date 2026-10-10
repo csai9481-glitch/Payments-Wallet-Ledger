@@ -371,3 +371,6 @@ def run_reconciliation(
             status_code=500,
             detail="Reconciliation could not be completed",
         )
+
+from app.statement_qa import router as statement_qa_router
+app.include_router(statement_qa_router)
