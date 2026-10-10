@@ -1,3 +1,4 @@
+
 from uuid import uuid4
 from concurrent.futures import ThreadPoolExecutor
 
@@ -6,7 +7,12 @@ from fastapi.testclient import TestClient
 from app.db import get_connection
 from app.main import app
 
+
 client = TestClient(app)
+
+# This fake token is only for automated tests.
+# Never use it as your real admin token.
+TEST_ADMIN_TOKEN = "test-only-admin-token"
 
 
 def create_test_wallets():
@@ -75,12 +81,14 @@ def get_balance(wallet_id):
 
 def test_home_endpoint():
     response = client.get("/")
+
     assert response.status_code == 200
     assert response.json()["message"] == "Wallet Ledger API is running"
 
 
 def test_health_endpoint():
     response = client.get("/health")
+
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
     assert response.json()["database"] == "connected"
@@ -88,6 +96,7 @@ def test_health_endpoint():
 
 def test_alice_wallet_balance():
     response = client.get("/wallets/1/balance")
+
     assert response.status_code == 200
 
     data = response.json()
@@ -99,6 +108,7 @@ def test_alice_wallet_balance():
 
 def test_bob_wallet_balance():
     response = client.get("/wallets/2/balance")
+
     assert response.status_code == 200
 
     data = response.json()
@@ -110,6 +120,7 @@ def test_bob_wallet_balance():
 
 def test_missing_wallet():
     response = client.get("/wallets/999999/balance")
+
     assert response.status_code == 404
     assert response.json()["detail"] == "Wallet not found"
 
@@ -289,8 +300,12 @@ def test_wallet_statement_pagination():
     assert len(first_data["transactions"]) == 2
     assert len(second_data["transactions"]) == 2
 
-    first_ids = {item["ledger_entry_id"] for item in first_data["transactions"]}
-    second_ids = {item["ledger_entry_id"] for item in second_data["transactions"]}
+    first_ids = {
+        item["ledger_entry_id"] for item in first_data["transactions"]
+    }
+    second_ids = {
+        item["ledger_entry_id"] for item in second_data["transactions"]
+    }
 
     assert first_ids.isdisjoint(second_ids)
 
@@ -303,13 +318,29 @@ def test_wallet_statement_rejects_invalid_pagination():
 
 def test_wallet_statement_missing_wallet():
     response = client.get("/wallets/999999/statement")
+
     assert response.status_code == 404
     assert response.json()["detail"] == "Wallet not found"
 
 
-def test_reconciliation_endpoint_returns_result():
-    """Check that reconciliation runs and returns a valid summary."""
+def test_reconciliation_rejects_missing_admin_token(monkeypatch):
+    """Admin reconciliation must reject requests without a token."""
+    monkeypatch.setenv("ADMIN_API_TOKEN", TEST_ADMIN_TOKEN)
+
     response = client.post("/admin/reconciliation/run")
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Invalid or missing admin token"
+
+
+def test_reconciliation_endpoint_returns_result(monkeypatch):
+    """Check that authenticated reconciliation returns a valid summary."""
+    monkeypatch.setenv("ADMIN_API_TOKEN", TEST_ADMIN_TOKEN)
+
+    response = client.post(
+        "/admin/reconciliation/run",
+        headers={"X-Admin-Token": TEST_ADMIN_TOKEN},
+    )
 
     assert response.status_code == 200
 
@@ -324,9 +355,14 @@ def test_reconciliation_endpoint_returns_result():
     assert data["finished_at"] is not None
 
 
-def test_reconciliation_runs_are_saved_in_database():
-    """Check that the reconciliation endpoint saves its run record."""
-    response = client.post("/admin/reconciliation/run")
+def test_reconciliation_runs_are_saved_in_database(monkeypatch):
+    """Check that authenticated reconciliation saves its run record."""
+    monkeypatch.setenv("ADMIN_API_TOKEN", TEST_ADMIN_TOKEN)
+
+    response = client.post(
+        "/admin/reconciliation/run",
+        headers={"X-Admin-Token": TEST_ADMIN_TOKEN},
+    )
     assert response.status_code == 200
 
     run_id = response.json()["run_id"]

@@ -4,39 +4,42 @@
 
 This project is a digital wallet system built using Python, FastAPI, and PostgreSQL. It allows users to check wallet balances, view transaction history, and transfer money between wallets.
 
-The project also includes a reconciliation process to check whether wallet records and ledger entries are consistent.
+It also includes a ledger, fraud checks, reconciliation, and protected admin operations.
 
 ## Features
 
-* Check wallet balances.
-* View wallet transaction history with pagination.
-* Transfer money between wallets.
-* Prevent transfers when the wallet has insufficient balance.
-* Use idempotency keys to prevent duplicate transfers.
-* Record debit and credit entries in the ledger.
-* Validate wallet status and currency.
-* Handle concurrent transfers safely.
-* Run reconciliation checks and store the results.
-* Run automated API and database tests.
+- Check wallet balances.
+- View transaction history with pagination.
+- Transfer money between wallets.
+- Prevent transfers when funds are insufficient.
+- Use idempotency keys to prevent duplicate transfers.
+- Record debit and credit ledger entries.
+- Validate wallet status and currency.
+- Handle concurrent transfers safely.
+- Flag risky transfers for review.
+- Run reconciliation checks and save the results.
+- Protect administrative endpoints with an admin token.
+- Release held transfers safely.
+- Run automated tests.
 
 ## Technologies Used
 
-* Python
-* FastAPI
-* PostgreSQL
-* Docker and Docker Compose
-* Pytest
-* Git and GitHub
+- Python
+- FastAPI
+- PostgreSQL
+- Docker and Docker Compose
+- Pytest
+- Git and GitHub
 
 ## Project Structure
 
-* `app/` — API, database connection, and worker code.
-* `migrations/` — SQL files for database tables, functions, views, and reconciliation.
-* `tests/` — Automated tests.
-* `docs/` — Database design and transaction isolation notes.
-* `docker-compose.yml` — Services required to run the project.
-* `Dockerfile` — API container setup.
-* `requirements.txt` — Python dependencies.
+- `app/` - API and worker code.
+- `migrations/` - SQL database migrations.
+- `tests/` - Automated tests.
+- `docs/` - Database design and transaction isolation notes.
+- `docker-compose.yml` - Docker services.
+- `Dockerfile` - API container setup.
+- `requirements.txt` - Python dependencies.
 
 ## How to Run
 
@@ -44,39 +47,63 @@ The project also includes a reconciliation process to check whether wallet recor
 
 Make sure Docker Desktop is running.
 
-### 2. Start PostgreSQL
+### 2. Configure the admin token
 
-Open Command Prompt in the project folder and run:
+Create a local `.env` file in the project folder with a strong, private `ADMIN_API_TOKEN` value.
 
-`docker compose up -d db`
+Do not commit `.env` to GitHub or share the token.
 
-### 3. Install Python packages
+### 3. Start the services
 
-`python -m pip install -r requirements.txt`
+Run:
 
-### 4. Set up the database
+`docker compose up -d --build`
 
-Apply the SQL migration files in numerical order, from `001_initial_schema.sql` through `008_reconciliation_function.sql`.
-
-If the database is already set up, do not run the initial setup again without checking which migrations have already been applied.
-
-### 5. Start the API
-
-`python -m uvicorn app.main:app --reload`
-
-### 6. Open the API documentation
+### 4. Open the API documentation
 
 Open this address in your browser:
 
 `http://127.0.0.1:8000/docs`
 
-### 7. Check the API health
+### 5. Check the API health
 
 Open:
 
 `http://127.0.0.1:8000/health`
 
-A successful response shows that the API can connect to PostgreSQL.
+## Database Setup
+
+The SQL migrations are in the `migrations/` folder and must be applied in numerical order for a fresh database.
+
+The migrations include the initial schema, seed data, wallet funding, transfers, reconciliation, fraud checks, audit records, and held-transfer release.
+
+Do not rerun migrations against an existing database without checking which migrations have already been applied.
+
+## API Endpoints
+
+- `GET /` - Project information.
+- `GET /health` - API and database health.
+- `GET /wallets/{wallet_id}/balance` - Wallet balance.
+- `GET /wallets/{wallet_id}/statement` - Wallet transaction history.
+- `POST /transfers` - Transfer money between wallets.
+- `POST /admin/reconciliation/run` - Run reconciliation.
+- `POST /admin/transfers/{transfer_id}/release` - Release a held transfer.
+
+Admin endpoints require the `X-Admin-Token` request header. Requests without a valid token are rejected.
+
+## Reconciliation
+
+Reconciliation checks whether wallet balances and ledger records are consistent. Results are saved in the database.
+
+The project includes a manual admin endpoint and a worker that runs checks on a schedule.
+
+## Money and Ledger Safety
+
+Money amounts are stored in paise using integer minor units.
+
+Transfers use database transactions and wallet locking to help prevent inconsistent balances and overspending. Idempotency keys help prevent duplicate transfer requests.
+
+Debit and credit ledger entries record the movement of money.
 
 ## How to Run Tests
 
@@ -84,35 +111,4 @@ Run:
 
 `python -m pytest -v`
 
-The tests cover API endpoints, wallet balances, transfers, idempotency, ledger entries, statements, reconciliation, and concurrent transfers.
-
-## Reconciliation Worker
-
-The worker runs reconciliation checks at a scheduled interval. The default interval is 24 hours.
-
-The project also provides an API endpoint to run reconciliation manually:
-
-`POST /admin/reconciliation/run`
-
-The result includes the run status, number of checks passed, and number of issues found.
-
-## Database Design
-
-PostgreSQL stores users, wallets, transfers, and ledger entries. SQL migrations create the database objects and reconciliation functions.
-
-Money is stored in paise as integer minor units to avoid floating-point errors in financial calculations.
-
-Transfers use database transactions and wallet locking to help maintain consistent balances during concurrent requests.
-
-## What I Learned
-
-I learned how to build backend APIs, work with PostgreSQL, create SQL migrations, handle wallet transfers, prevent duplicate requests, write automated tests, and check financial records through reconciliation.
-
-## Future Improvements
-
-* Add authentication and authorization.
-* Add role-based access to administrative endpoints.
-* Improve transfer reversal and failure handling.
-* Add more security and failure-recovery tests.
-* Automate database migration setup.
-* Add more monitoring and operational documentation.
+The tests cover API endpoints, wallet balances, transfers, idempotency,
