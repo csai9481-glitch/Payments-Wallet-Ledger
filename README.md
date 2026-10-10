@@ -4,67 +4,76 @@
 
 Payments-Grade Wallet Ledger is a digital wallet backend built using Python, FastAPI, and PostgreSQL.
 
-It supports wallet balances, transaction history, money transfers, ledger records, idempotency, fraud checks, and reconciliation.
+The project demonstrates how a wallet system can manage balances, transfer money, record financial transactions, prevent duplicate requests, check for risky transfers, and identify inconsistencies in financial records.
 
-The main goal is to handle money safely, prevent duplicate transfers, and maintain consistent financial records.
+The main goal is to maintain accurate financial records and handle transfers safely, including when multiple requests happen at the same time.
 
 ## 2. Features
 
 - Check wallet balances.
-- View transaction history with pagination.
+- View wallet transaction history with pagination.
 - Transfer money between wallets.
-- Reject transfers when funds are insufficient.
-- Use idempotency keys to help prevent duplicate transfers.
-- Record debit and credit ledger entries.
+- Reject transfers when the sender has insufficient funds.
+- Use idempotency keys to prevent duplicate transfers.
+- Record debit and credit entries in a financial ledger.
 - Validate wallet status and currency.
 - Use database transactions and wallet locking.
-- Flag risky transfers for review.
-- Release held transfers through a protected admin endpoint.
+- Apply risk checks and flag transfers for review.
+- Support administrator operations through protected endpoints.
 - Run reconciliation checks and save results.
-- Protect administrative operations with an admin token.
 - Run automated tests using Pytest.
-- Run the project using Docker Compose.
+- Start the application services using Docker Compose.
+- Run automated tests through GitHub Actions.
 
 ## 3. Technologies Used
 
-- **Python** - backend programming language.
-- **FastAPI** - REST API framework.
-- **PostgreSQL** - relational database.
-- **SQL** - database schema, functions, and migrations.
-- **Docker and Docker Compose** - application and database setup.
-- **Pytest** - automated testing.
-- **Git and GitHub** - version control and source code hosting.
-- **GitHub Actions** - automated test workflow.
+- **Python** — backend programming language.
+- **FastAPI** — REST API framework.
+- **PostgreSQL** — relational database.
+- **SQL** — database tables, functions, views, and migrations.
+- **Docker and Docker Compose** — application and database setup.
+- **Pytest** — automated testing.
+- **Git and GitHub** — version control and source code hosting.
+- **GitHub Actions** — automated test workflow.
 
 ## 4. Project Structure
 
-- `app/` - API, database connection, and worker code.
-- `migrations/` - SQL schema changes and database functions.
-- `tests/` - automated tests.
-- `docs/schema.md` - database design documentation.
-- `docs/isolation.md` - transaction isolation notes and experiments.
-- `docker-compose.yml` - Docker service configuration.
-- `Dockerfile` - API container setup.
-- `requirements.txt` - Python dependencies.
-- `.github/workflows/tests.yml` - automated test workflow.
-- `run_concurrency_test.py` - concurrency test script.
+- `app/` — API, database connection, and worker code.
+- `migrations/` — SQL schema changes, database functions, and supporting scripts.
+- `tests/` — automated tests.
+- `docs/schema.md` — database design documentation.
+- `docs/isolation.md` — transaction isolation notes and experiments.
+- `docs/concurrency-test-results.md` — concurrency test results.
+- `docs/performance-results.md` — performance measurements.
+- `docker-compose.yml` — Docker service configuration.
+- `Dockerfile` — API container setup.
+- `requirements.txt` — Python dependencies.
+- `.github/workflows/tests.yml` — automated test workflow.
+- `run_concurrency_test.py` — separate concurrency test script.
 
-## 5. How to Run
+## 5. Requirements
 
-### Requirements
-
-Install or configure:
+Install or configure the following:
 
 - Python 3.12 or a compatible Python version.
 - Docker Desktop.
 - Git.
 
-### Configure the project
+Start Docker Desktop before running the application.
 
-1. Open the project folder in Windows Command Prompt.
-2. Start Docker Desktop.
-3. Create a local `.env` file containing a strong, private `ADMIN_API_TOKEN`.
-4. Do not commit `.env` or share the admin token.
+## 6. How to Run the Project
+
+Open Windows Command Prompt and move to the project folder:
+
+```cmd
+cd /d C:\Users\USER\Desktop\Payments-Wallet-Ledger
+```
+
+### Configure the environment
+
+Create a local `.env` file with the environment variables required by the application.
+
+Set a strong, private admin token using the variable expected by the application configuration. Do not commit `.env` or share the token publicly.
 
 ### Start the services
 
@@ -74,7 +83,7 @@ Run:
 docker compose up -d --build
 ```
 
-Check the running containers:
+Check the service status:
 
 ```cmd
 docker compose ps
@@ -90,13 +99,13 @@ http://127.0.0.1:8000/health
 
 ### Database setup
 
-For a new database, start PostgreSQL first:
+For a fresh database, start PostgreSQL first:
 
 ```cmd
 docker compose up -d db
 ```
 
-Apply the SQL migration files in numerical order, from `001_initial_schema.sql` through the latest migration. Follow the database setup instructions for the configured PostgreSQL container and credentials.
+Apply the SQL migrations in numerical order, following the database setup instructions and using the configured database credentials. Apply each migration only once to the appropriate database.
 
 Then start the application services:
 
@@ -104,169 +113,185 @@ Then start the application services:
 docker compose up -d --build
 ```
 
-**Important:** Apply migrations only when setting up a fresh database or when applying a specific migration that has not already run. Do not blindly run every migration against an existing database. Back up important data before making database changes.
+**Important:** Do not blindly rerun all migrations against an existing database. Back up important data before making database changes. The application does not automatically apply all SQL migrations when its containers start.
 
-The application does not automatically apply all migrations when its containers start.
-
-## 6. API Endpoints
+## 7. API Endpoints
 
 | Method | Endpoint | Purpose |
 |---|---|---|
 | GET | `/` | Project information |
-| GET | `/health` | Check application and database health |
+| GET | `/health` | Check application health |
 | GET | `/wallets/{wallet_id}/balance` | Get a wallet balance |
 | GET | `/wallets/{wallet_id}/statement` | Get wallet transaction history |
 | POST | `/transfers` | Create a money transfer |
 | POST | `/admin/reconciliation/run` | Run reconciliation |
-| POST | `/admin/transfers/{transfer_id}/release` | Release a held transfer |
+| POST | `/admin/transfers/{transfer_id}/release` | Request release of a held transfer |
 
-Admin endpoints require the `X-Admin-Token` request header. Requests without a valid token should be rejected.
+Administrative endpoints require the configured admin token in the `X-Admin-Token` request header.
 
-Use the Swagger documentation at `/docs` to inspect the request and response formats.
+Use the Swagger documentation at `/docs` to inspect request fields, response formats, and available endpoints.
 
-## 7. Database Design
+## 8. Database Design
 
-The database uses relational tables to store users, wallets, transfers, ledger entries, system accounts, and supporting operational information.
-
-The schema and later migrations also support features such as funding, reconciliation, idempotency, risk checks, and risk flag explanations.
+The database uses relational tables to represent users, wallets, transfers, ledger entries, system accounts, and supporting operational records.
 
 The main relationships are:
 
 - One user can have multiple wallets.
-- A wallet can have multiple ledger entries.
-- A transfer connects a sending wallet and a receiving wallet.
-- A transfer can have multiple ledger entries.
-- System accounts support financial movements that are not ordinary user-to-user transfers.
-- Supporting tables store operational records such as reconciliation results and risk flags.
+- One wallet can have multiple ledger entries.
+- Each transfer identifies a sending wallet and a receiving wallet.
+- Transfers have associated financial ledger entries.
+- System accounts support financial movements involving non-user accounts.
+- Supporting tables store information such as funding records, reconciliation results, risk flags, and transfer status changes.
 
-See `docs/schema.md` for the detailed schema documentation and database relationships.
+Foreign keys help maintain relationships between related records.
 
-## 8. Money and Ledger Safety
+See `docs/schema.md` for more details about the database tables, relationships, and schema design.
+
+## 9. Money Representation and Ledger Safety
 
 ### Money representation
 
-Money is represented using integer minor units. For INR, one rupee equals 100 paise.
+Monetary amounts are represented using integer minor units.
 
-For example:
+For Indian rupees, one rupee equals 100 paise.
+
+Examples:
 
 - ₹10.00 = 1,000 paise.
 - ₹100.00 = 10,000 paise.
 - ₹500.00 = 50,000 paise.
 
-Using integer paise avoids common floating-point rounding problems.
+Using integer minor units avoids common floating-point rounding errors when representing money.
 
 ### Double-entry ledger
 
-A completed transfer records a debit against the sender and a matching credit for the receiver.
+A completed transfer records a debit for the sender and a matching credit for the receiver.
 
-The total debits and credits for a transfer should balance.
+The debit and credit amounts for a valid transfer should balance.
 
-The ledger provides an audit trail of money movements. Wallet balances should be checked against the underlying financial records.
+The ledger provides an audit trail of financial movements and is the source used to calculate wallet balances in this project.
+
+### Wallet balances
+
+Wallet balances are calculated from ledger entries using a database view rather than stored as a separate balance value in the `wallets` table.
+
+This design avoids maintaining two separate representations of the wallet balance. However, calculating balances from ledger entries can become more expensive as the ledger grows, so appropriate indexes and query optimization are important.
+
+A system using separately stored balances could offer faster reads, but it would need additional safeguards to keep those balances synchronized with the ledger.
 
 ### Transactions and concurrent requests
 
-Transfers use database transactions to keep related changes together.
+Database transactions keep related financial changes together.
 
-Wallets are locked in a consistent order to reduce deadlocks. The sender's available balance must be checked while the appropriate locks are held.
+Wallet locking helps prevent concurrent transfers from spending the same available funds more than once. Consistent lock ordering also helps reduce deadlocks.
 
-If the sender does not have enough money, the transfer should be rejected instead of allowing a negative user wallet balance.
+The sender's available balance must be checked safely while the relevant database locks are held. Transfers that exceed the available balance should be rejected.
 
-## 9. Idempotency
+## 10. Idempotency
 
-Idempotency helps prevent the same request from creating multiple transfers when a client retries after a timeout or network failure.
+Idempotency helps prevent duplicate transfers when a client retries a request after a timeout or network failure.
 
-The server records information about a request and its result. A repeated request using the same key and the same request body should return the saved result rather than create another transfer.
+The server records request information and the result associated with an idempotency key.
 
-Reusing a key with a different request body should be rejected.
+When the same key and request are submitted again, the existing result should be returned instead of creating another transfer. Reusing a key with a different request should be rejected.
 
-This is important for payment systems because a client may not know whether a request completed when a network connection fails.
+This is important in payment systems because a client may not know whether a request succeeded when its network connection fails.
 
-## 10. Fraud Checks and Held Transfers
+## 11. Risk Checks and Held Transfers
 
-The project includes database-backed risk checks to identify transfers that may need review.
+The project includes database-backed risk checks to identify transfers that may require additional review.
 
-A transfer that triggers a configured rule can be held instead of immediately moving money. An authorized administrator can review and release a held transfer through the protected admin endpoint.
+Transfers that trigger applicable rules can be held for review rather than immediately completing the money movement.
 
-Risk flag explanations are stored in the database. A risk explanation is supporting information for review, not proof that a transaction is fraudulent.
+The project also includes protected administrative functionality for releasing held transfers and stores risk-related information in the database.
 
-## 11. Reconciliation
+A risk flag is a signal for further review. It is not, by itself, proof of fraudulent activity.
 
-Reconciliation checks financial records for inconsistencies.
+## 12. Reconciliation
 
-The project includes reconciliation functionality and a manual admin endpoint. Results are saved in the database, and a worker is configured for scheduled checks.
+Reconciliation helps identify inconsistencies in financial records.
 
-Reconciliation is intended to help identify issues such as:
+The project includes reconciliation functionality, a manual administrative endpoint, saved reconciliation results, and a worker configured to run scheduled checks.
 
-- Unbalanced ledger entries.
-- Transfers whose ledger records do not balance.
-- Differences between stored balances and calculated balances.
-- Invalid negative wallet balances.
-- Missing or inconsistent financial records.
+The implemented checks cover selected conditions involving transfers, funding records, ledger entries, and wallet balances.
 
-The exact checks and database queries are documented in the implementation and migrations.
+Reconciliation is useful for identifying financial inconsistencies that need investigation. Its coverage depends on the checks implemented in the database functions.
 
-## 12. Statement and Transaction Questions
+Wallet balances in this project are derived from the ledger. Therefore, comparing them against a separate stored wallet balance is not applicable to the current schema.
 
-The project includes statement-related functionality for answering questions about wallet activity.
+See the SQL migrations and database documentation for details about the implemented checks.
 
-Questions must be handled using validated inputs and database queries that are restricted to the relevant user's wallets. User-provided text should never be treated as trusted SQL or as instructions to bypass access controls.
+## 13. Statement and Transaction Questions
 
-Responses should be based on actual database records rather than invented transaction information.
+The project includes statement-related functionality for answering supported questions about wallet activity.
 
-## 13. Error Handling and Security
+Requests should be validated, and database queries should be restricted to the relevant user's authorized wallet records.
+
+User-provided text must not be treated as trusted SQL or as permission to bypass access controls.
+
+Answers should be based on actual database records. When a response refers to a transfer, the corresponding transaction identifier should be included where required.
+
+## 14. Security and Error Handling
 
 Important safety measures include:
 
 - Validate request data before processing it.
 - Represent monetary amounts using integer minor units.
 - Check wallet status and currency.
-- Reject transfers that exceed the available balance.
+- Reject transfers that exceed available funds.
 - Use database transactions for related financial changes.
 - Use parameterized SQL queries.
-- Protect admin operations with a private token.
+- Protect administrative operations with a private token.
 - Keep credentials and secrets out of source control.
 - Test repeated requests and concurrent transfers.
+- Avoid exposing credentials and sensitive internal details in error messages.
 
-API errors should provide useful information without exposing credentials, private data, or internal database details.
+Production deployments would require additional work on user authentication, authorization, secret management, monitoring, and operational recovery.
 
-## 14. Running Automated Tests
+## 15. Running Automated Tests
 
-Run the tests from the project folder:
+Run the automated tests from the project folder:
 
 ```cmd
-python -m pytest -v
+python -m pytest tests -v
 ```
 
-The tests cover API endpoints, wallet balances, transfer behavior, idempotency, ledger consistency, statements, reconciliation, concurrency-related behavior, and risk-related functionality.
+The test suite covers selected API endpoints, wallet balances, transfer behavior, idempotency, ledger consistency, statements, reconciliation, concurrency-related behavior, and risk-related functionality.
 
-GitHub Actions also runs the automated test workflow when changes are pushed to the configured branch or a pull request is opened.
+GitHub Actions also runs the configured automated test workflow when supported repository events occur.
 
-A successful test run confirms that the tests passed in that environment. It does not, by itself, prove every production-scale or failure-recovery scenario.
+A passing test suite confirms that the included tests passed in that environment. It does not prove that every production failure scenario or assignment acceptance criterion has been covered.
 
-## 15. Design Trade-offs
+## 16. Design Trade-offs
 
-- **PostgreSQL transactions:** Keep related financial changes atomic, but require careful handling of locks and transaction failures.
-- **Wallet locking:** Protects balances during concurrent transfers, but may reduce throughput when many requests use the same wallet.
-- **Idempotency:** Makes retries safer, but requires storing and validating request information.
-- **Integer paise:** Avoids floating-point rounding, but the API must consistently validate and document the monetary unit.
-- **Ledger-based records:** Improve auditability, but require reconciliation and careful control of financial writes.
-- **Fraud holds:** Allow risky transfers to be reviewed, but introduce additional operational work.
-- **Scheduled reconciliation:** Can detect inconsistencies after they occur, but does not replace transaction-level safety checks.
+- **PostgreSQL transactions:** Keep related financial changes atomic, but require careful transaction and error handling.
+- **Wallet locking:** Protects against concurrent overspending, but can reduce throughput when requests compete for the same wallet.
+- **Idempotency:** Makes retries safer, but requires storing request information and validating repeated requests.
+- **Integer minor units:** Avoids floating-point rounding errors, but requires consistent monetary units across API and database operations.
+- **Ledger-derived balances:** Provide an auditable source for balance calculations, but can make reads more expensive as the ledger grows.
+- **Risk holds:** Allow suspicious transfers to be reviewed, but require an operational review and release process.
+- **Reconciliation:** Helps detect inconsistencies, but does not replace transaction-level validation and financial safeguards.
+- **Scheduled workers:** Automate background tasks, but require safe retries, monitoring, and recovery procedures.
 
-## 16. Future Improvements
+## 17. Future Improvements
 
 Possible improvements include:
 
-- Expand load testing and repeat concurrency experiments in a clean, isolated test database.
-- Test reconciliation against deliberately introduced inconsistencies.
-- Add monitoring, structured logs, and production-grade secret management.
-- Improve cursor-based pagination for very large statements.
-- Add stronger authentication and authorization for individual users.
-- Test worker recovery, database failures, and repeated job execution.
-- Measure query performance using realistic large datasets.
+- Expand automated tests for missing idempotency keys and parallel requests using the same key.
+- Test reconciliation against deliberately introduced financial inconsistencies.
+- Expand reconciliation coverage and document its transaction isolation guarantees.
+- Improve cursor-based pagination for large wallet statements.
+- Add stronger user authentication and authorization.
+- Improve worker monitoring, retry handling, and recovery.
+- Add production-grade logging and secret management.
+- Run additional performance tests using realistic workloads.
+- Validate all required assignment acceptance criteria before production use.
 
-## 17. Conclusion
+## 18. Conclusion
 
-This project demonstrates the core backend concepts needed for a digital wallet: relational database design, financial ledger entries, safe transfers, idempotency, transaction locking, fraud checks, reconciliation, API development, and automated testing.
+This project demonstrates important wallet-backend concepts, including relational database design, financial ledger entries, money transfers, idempotency, transaction locking, risk checks, reconciliation, REST API development, and automated testing.
 
-The main priority is to keep financial records consistent and prevent duplicate or invalid money movements.
+The main goal is to maintain accurate financial records and reduce the risk of duplicate or invalid money movements.
+
+This project is an educational backend implementation and should undergo further validation before being used to process real customer funds.
