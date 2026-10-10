@@ -73,11 +73,35 @@ Open:
 
 ## Database Setup
 
-The SQL migrations are in the `migrations/` folder and must be applied in numerical order for a fresh database.
+The project uses PostgreSQL and SQL migration files in the `migrations/` folder.
 
-The migrations include the initial schema, seed data, wallet funding, transfers, reconciliation, fraud checks, audit records, and held-transfer release.
+**For a fresh database on Windows:**
 
-Do not rerun migrations against an existing database without checking which migrations have already been applied.
+1. Make sure Docker Desktop is running.
+2. Create the `.env` file with a private `ADMIN_API_TOKEN`, as explained above.
+3. Start only the database:
+
+   ```cmd
+   docker compose up -d db
+   ```
+
+4. Apply all SQL migrations in order. Run this command in Windows Command Prompt from the project folder:
+
+   ```cmd
+   for %f in (migrations\*.sql) do docker exec -i wallet_postgres psql -U wallet_user -d wallet_db -v ON_ERROR_STOP=1 < "%f"
+   ```
+
+5. Build and start the API and worker:
+
+   ```cmd
+   docker compose up -d --build
+   ```
+
+6. Open `http://127.0.0.1:8000/docs` to explore the API.
+
+**Important:** The migration command above is for a fresh database only. Do not run all migrations again against an existing database. Check which migrations have already been applied first. The application does not automatically apply migrations when its containers start.
+
+Migration `012_risk_flag_explanations.sql` saves an explanation for each fraud risk flag.
 
 ## API Endpoints
 
