@@ -1,7 +1,7 @@
 
 from typing import Annotated
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, Header, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from app.db import get_connection
@@ -15,7 +15,6 @@ app = FastAPI(
 
 
 class TransferRequest(BaseModel):
-    idempotency_key: Annotated[str, Field(min_length=1, max_length=255)]
     source_wallet_id: int = Field(gt=0)
     destination_wallet_id: int = Field(gt=0)
     amount_minor: int = Field(gt=0)
@@ -152,7 +151,10 @@ def get_wallet_statement(
 
 
 @app.post("/transfers")
-def create_transfer(request: TransferRequest):
+def create_transfer(
+    request: TransferRequest,
+    idempotency_key: Annotated[str, Header(alias="Idempotency-Key", min_length=1, max_length=255)],
+):
     try:
         with get_connection() as conn:
             row = conn.execute(
@@ -160,7 +162,7 @@ def create_transfer(request: TransferRequest):
                 SELECT transfer_money(%s, %s, %s, %s, %s)
                 """,
                 (
-                    request.idempotency_key,
+                    idempotency_key,
                     request.source_wallet_id,
                     request.destination_wallet_id,
                     request.amount_minor,
