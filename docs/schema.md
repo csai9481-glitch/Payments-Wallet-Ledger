@@ -1,478 +1,295 @@
 # Database Schema Design
 
-
-
 ## 1. Introduction
 
+This project uses PostgreSQL to store users, wallets, money transfers, and ledger entries.
 
+The database currently has 11 main tables:
 
-This project uses PostgreSQL to store wallet information and money transfers.
+- `users`
+- `wallets`
+- `system_accounts`
+- `transfers`
+- `ledger_entries`
+- `wallet_fundings`
+- `reconciliation_runs`
+- `reconciliation_issues`
+- `risk_rules`
+- `risk_flags`
+- `transfer_status_audit`
 
+The database also has a `wallet_balances` view, which calculates wallet balances from ledger entries.
 
+Primary keys and foreign keys connect related records. Database constraints, SQL functions, and application tests provide additional protection for money transfers.
 
-The database has five main tables:
+## 2. Tables and Their Purpose
 
+| Table | Purpose |
+|---|---|
+| `users` | Stores user details, email, phone, and KYC status. |
+| `wallets` | Stores wallets owned by users and their currencies and statuses. |
+| `system_accounts` | Stores internal payment-system accounts. |
+| `transfers` | Stores transfer amounts, source and destination wallets, status, and timestamps. |
+| `ledger_entries` | Stores debit and credit entries for money movements. |
+| `wallet_fundings` | Records wallet-funding operations. |
+| `reconciliation_runs` | Stores the results and status of reconciliation runs. |
+| `reconciliation_issues` | Stores problems detected during reconciliation. |
+| `risk_rules` | Stores configurable risk rules and their thresholds. |
+| `risk_flags` | Stores transfers flagged for risk and their review details. |
+| `transfer_status_audit` | Records changes to transfer status. |
 
+## 3. Main Tables and Attributes
 
-* `users`
+### 3.1 Users
 
-* `wallets`
+The `users` table stores information about each user.
 
-* `system_accounts`
+- `user_id`: Primary key.
+- `full_name`: User's full name.
+- `email`: Email address.
+- `phone`: Phone number.
+- `kyc_status`: Know Your Customer verification status.
+- `created_at`: Date and time when the user was created.
 
-* `transfers`
+### 3.2 Wallets
 
-* `ledger_entries`
+The `wallets` table stores user-owned wallets.
 
+- `wallet_id`: Primary key.
+- `user_id`: Foreign key referencing `users`.
+- `currency`: Wallet currency, currently INR.
+- `status`: Wallet status.
+- `created_at`: Wallet creation time.
 
+A user can own multiple wallets. The database constraints determine which wallet combinations are allowed.
 
-The tables are connected using primary keys and foreign keys. This helps keep the data connected correctly.
+### 3.3 System Accounts
 
+The `system_accounts` table stores internal accounts used by the payment system.
 
+- `system_account_id`: Primary key.
+- `account_name`: Account name.
+- `account_type`: Type of system account.
+- `currency`: Account currency.
+- `created_at`: Account creation time.
 
-## 2. List of Nouns
+Examples include clearing and fee accounts.
 
+### 3.4 Transfers
 
+The `transfers` table stores money-transfer details.
 
-I reviewed the project requirements and decided which nouns need their own tables.
+- `transfer_id`: Primary key.
+- `idempotency_key`: Key used to identify repeated requests.
+- `source_wallet_id`: Wallet sending the money.
+- `destination_wallet_id`: Wallet receiving the money.
+- `amount_minor`: Amount stored as a whole number of minor currency units.
+- `currency`: Transfer currency.
+- `status`: Current transfer status.
+- `created_at`: Transfer creation time.
+- `completed_at`: Completion time, when applicable.
 
+The application validates transfer amounts and prevents a wallet from spending more money than it has. Idempotency handling is tested so that retries do not create duplicate transfers and reuse of a key with a different request body is rejected.
 
+The exact database constraints and application logic should be reviewed together when evaluating idempotency guarantees.
 
-| Noun                  | Table                 | Reason                                                                                                                          |
+### 3.5 Ledger Entries
 
-| --------------------- | --------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+The `ledger_entries` table records money movements.
 
-| User                  | `users`               | Stores user details.                                                                                                            |
+- `ledger_entry_id`: Primary key.
+- `transfer_id`: Reference to the related transfer.
+- `wallet_id`: Wallet involved, when applicable.
+- `system_account_id`: System account involved, when applicable.
+- `entry_type`: Debit or credit.
+- `amount_minor`: Entry amount in minor currency units.
+- `currency`: Entry currency.
+- `created_at`: Entry creation time.
+- `funding_id`: Related funding record, when applicable.
 
-| Wallet                | `wallets`             | Stores each user's wallet and currency.                                                                                         |
+Ledger entries provide the accounting record behind wallet balances. Money movements should have matching debit and credit amounts.
 
-| System account        | `system_accounts`     | Stores accounts used by the payment system.                                                                                     |
+Completed transfers should be corrected through reversal entries or transfers rather than by silently changing historical accounting records. Database-level immutability and balancing constraints must be verified separately.
 
-| Transfer              | `transfers`           | Stores details about a money transfer.                                                                                          |
+### 3.6 Wallet Funding
 
-| Ledger entry          | `ledger_entries`      | Stores debit and credit records for transfers.                                                                                  |
+The `wallet_fundings` table records wallet-funding operations. Funding operations use the funding logic defined by the project migrations.
 
-| Currency              | Column                | Currently, the project uses INR, so a separate table is not necessary yet.                                                      |
+### 3.7 Reconciliation
 
-| Idempotency key       | Column in `transfers` | The current schema stores a key with each transfer. A separate table may be needed to store request hashes and saved responses. |
+The `reconciliation_runs` table records each reconciliation run, including its start and finish times, status, checks passed, and issues found.
 
-| Reconciliation report | Not implemented       | A table will be needed to store nightly checks and detected problems.                                                           |
+The `reconciliation_issues` table stores detected problems and can link an issue to a transfer or wallet.
 
-| Fraud rule            | Not implemented       | A table will be needed to store fraud rules and their thresholds.                                                               |
+The worker runs reconciliation and records the result. A verified run in the current environment completed with four checks passed and zero issues found. This result describes that run only; it does not prove that every corruption scenario has been tested.
 
-| Audit log             | Not implemented       | A table will be needed to record transfer status changes.                                                                       |
+### 3.8 Risk Rules and Flags
 
+The `risk_rules` table stores risk-rule configuration, including whether a rule is enabled and its thresholds.
 
+The `risk_flags` table records transfers flagged for review. It includes the rule name, details, review information, resolution, and explanation.
 
-## 3. Tables and Attributes
+The existence of these tables does not by itself prove that every required fraud scenario or automated explanation workflow is complete.
 
+### 3.9 Transfer Status Audit
 
-
-### 3.1 users
-
-
-
-Stores information about users.
-
-
-
-* `user_id`: Primary key generated by the database.
-
-* `full_name`: User's full name.
-
-* `email`: User's email address. It must be unique.
-
-* `created_at`: Date and time when the user was created.
-
-
-
-**To add later:** phone number and KYC status, as required by the assignment.
-
-
-
-### 3.2 wallets
-
-
-
-Stores the wallets owned by users.
-
-
-
-* `wallet_id`: Primary key.
-
-* `user_id`: Foreign key referencing `users`.
-
-* `currency`: Wallet currency, currently INR.
-
-* `status`: Wallet status, such as active, frozen or closed.
-
-* `created_at`: Wallet creation time.
-
-
-
-A user can have multiple wallets in the final design. The current schema allows only one wallet per user for each currency.
-
-
-
-### 3.3 system_accounts
-
-
-
-Stores accounts used by the payment system rather than individual users.
-
-
-
-* `system_account_id`: Primary key.
-
-* `account_name`: Unique account name.
-
-* `account_type`: Type of system account.
-
-* `currency`: Account currency.
-
-* `created_at`: Account creation time.
-
-
-
-Examples include fee revenue and clearing accounts.
-
-
-
-### 3.4 transfers
-
-
-
-Stores the details of a money transfer.
-
-
-
-* `transfer_id`: Primary key.
-
-* `idempotency_key`: Key used to identify repeated requests.
-
-* `source_wallet_id`: Wallet sending the money.
-
-* `destination_wallet_id`: Wallet receiving the money.
-
-* `amount_minor`: Amount stored in paise as a whole number.
-
-* `currency`: Currency of the transfer.
-
-* `status`: Transfer status.
-
-* `created_at`: Transfer creation time.
-
-* `completed_at`: Time when the transfer was completed.
-
-
-
-The amount must be greater than zero, and the source and destination wallets must be different.
-
-
-
-**To add later:** transfer type, a request-body hash, and complete idempotency response handling.
-
-
-
-### 3.5 ledger_entries
-
-
-
-Stores the debit and credit records for each transfer.
-
-
-
-* `ledger_entry_id`: Primary key.
-
-* `transfer_id`: Foreign key referencing `transfers`.
-
-* `wallet_id`: Wallet involved in the entry, when applicable.
-
-* `system_account_id`: System account involved in the entry, when applicable.
-
-* `entry_type`: Debit or credit.
-
-* `amount_minor`: Positive amount in paise.
-
-* `currency`: Currency of the entry.
-
-* `created_at`: Entry creation time.
-
-
-
-Each entry belongs to exactly one wallet or one system account. The database constraint prevents both account references from being set at the same time or both being empty.
-
-
-
-For every completed transfer, the ledger should contain balanced debit and credit entries. Additional database enforcement and tests are still needed to guarantee that rule.
-
-
+The `transfer_status_audit` table records transfer status changes, including the old status, new status, actor, and time of change.
 
 ## 4. Relationships and Cardinality
 
+| Relationship | Cardinality | Explanation |
+|---|---|---|
+| Users to wallets | One-to-many | A user may own multiple wallets. |
+| Wallets to outgoing transfers | One-to-many | A wallet may send multiple transfers. |
+| Wallets to incoming transfers | One-to-many | A wallet may receive multiple transfers. |
+| Transfers to ledger entries | One-to-many | A transfer may have multiple accounting entries. |
+| Wallets to ledger entries | One-to-many | A wallet may have multiple ledger entries. |
+| System accounts to ledger entries | One-to-many | A system account may have multiple ledger entries. |
+| Reconciliation runs to issues | One-to-many | A run may identify multiple issues. |
+| Risk rules to risk flags | Logical relationship | A rule name identifies the rule associated with a flag. |
 
-
-| Relationship                      | Cardinality                        | Explanation                                                                                                            |
-
-| --------------------------------- | ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-
-| Users to wallets                  | One-to-many in the intended design | One user can own multiple wallets. The current unique constraint limits this to one wallet per currency for each user. |
-
-| Wallets to outgoing transfers     | One-to-many                        | One wallet can send many transfers.                                                                                    |
-
-| Wallets to incoming transfers     | One-to-many                        | One wallet can receive many transfers.                                                                                 |
-
-| Transfers to ledger entries       | One-to-many                        | One transfer can have multiple ledger entries.                                                                         |
-
-| Wallets to ledger entries         | One-to-many                        | One wallet can have many ledger entries.                                                                               |
-
-| System accounts to ledger entries | One-to-many                        | One system account can have many ledger entries.                                                                       |
-
-
-
-Foreign keys are used to connect related records and prevent references to nonexistent users, wallets, transfers or system accounts.
-
-
+Foreign keys connect related records where defined by the schema. The precise constraints can be checked in the database migrations.
 
 ## 5. ER Diagram
 
-
-
 ```mermaid
-
 erDiagram
-
     USERS ||--o{ WALLETS : owns
-
     WALLETS ||--o{ TRANSFERS : sends
-
     WALLETS ||--o{ TRANSFERS : receives
-
-    TRANSFERS ||--|{ LEDGER_ENTRIES : records
-
+    TRANSFERS ||--o{ LEDGER_ENTRIES : records
     WALLETS o|--o{ LEDGER_ENTRIES : records
-
     SYSTEM_ACCOUNTS o|--o{ LEDGER_ENTRIES : records
-
-
+    RECONCILIATION_RUNS ||--o{ RECONCILIATION_ISSUES : reports
+    TRANSFERS ||--o{ RISK_FLAGS : flags
+    TRANSFERS ||--o{ TRANSFER_STATUS_AUDIT : audits
 
     USERS {
-
         bigint user_id PK
-
         varchar full_name
-
-        varchar email UK
-
+        varchar email
+        varchar phone
+        varchar kyc_status
         timestamptz created_at
-
     }
-
-
 
     WALLETS {
-
         bigint wallet_id PK
-
         bigint user_id FK
-
         char currency
-
         varchar status
-
         timestamptz created_at
-
     }
-
-
-
-    SYSTEM_ACCOUNTS {
-
-        bigint system_account_id PK
-
-        varchar account_name UK
-
-        varchar account_type
-
-        char currency
-
-        timestamptz created_at
-
-    }
-
-
 
     TRANSFERS {
-
         bigint transfer_id PK
-
-        varchar idempotency_key UK
-
+        varchar idempotency_key
         bigint source_wallet_id FK
-
         bigint destination_wallet_id FK
-
         bigint amount_minor
-
         char currency
-
         varchar status
-
         timestamptz created_at
-
         timestamptz completed_at
-
     }
-
-
 
     LEDGER_ENTRIES {
-
         bigint ledger_entry_id PK
-
         bigint transfer_id FK
-
         bigint wallet_id FK
-
         bigint system_account_id FK
-
+        bigint funding_id
         varchar entry_type
-
         bigint amount_minor
-
         char currency
-
         timestamptz created_at
-
     }
 
+    RECONCILIATION_RUNS {
+        bigint run_id PK
+        timestamptz started_at
+        timestamptz finished_at
+        varchar status
+        integer checks_passed
+        integer issues_found
+    }
+
+    RECONCILIATION_ISSUES {
+        bigint issue_id PK
+        bigint run_id FK
+        varchar issue_type
+        text description
+    }
+
+    RISK_RULES {
+        bigint rule_id PK
+        varchar rule_name
+        boolean enabled
+    }
+
+    RISK_FLAGS {
+        bigint risk_flag_id PK
+        bigint transfer_id FK
+        varchar rule_name
+        text explanation
+    }
+
+    TRANSFER_STATUS_AUDIT {
+        bigint audit_id PK
+        bigint transfer_id FK
+        varchar old_status
+        varchar new_status
+    }
 ```
 
-
+This diagram shows the main relationships. Consult the migrations for the complete set of columns, indexes, and constraints.
 
 ## 6. Design Decisions
 
-
-
 ### How is money stored?
 
+Money is stored as an integer number of minor currency units. For INR, one rupee equals 100 paise.
 
+For example, ₹250.00 is stored as `25000`. Integer storage avoids floating-point rounding errors.
 
-Money is stored as `BIGINT` in the `amount_minor` column. One rupee equals 100 paise.
+### How are wallet balances calculated?
 
+The `wallet_balances` view calculates balances from ledger entries. This reduces the need to maintain a separate balance that could become inconsistent.
 
-
-For example, ₹250.00 is stored as `25000`.
-
-
-
-This avoids floating-point rounding errors.
-
-
-
-### Should balances be stored or calculated?
-
-
-
-The current schema calculates wallet balances from ledger entries through a database view.
-
-
-
-Calculating the balance from ledger entries avoids keeping a separate balance that could become incorrect. However, it can become slower when the ledger grows.
-
-
-
-A stored balance can make balance checks faster, but every transfer must update it safely and keep it consistent with the ledger.
-
-
+The trade-off is that calculating balances can become slower as the ledger grows. If a stored balance is introduced or maintained, every money movement must update it safely and reconciliation must verify it against the ledger.
 
 ### Why are wallet and system accounts separate?
 
+Wallets belong to users, while system accounts support internal payment operations. Keeping them separate makes their purposes clear but requires ledger logic to handle both account types.
 
+### Why use generated IDs?
 
-The current design uses separate `wallets` and `system_accounts` tables to keep user-owned accounts separate from internal payment-system accounts.
+Generated IDs provide stable references between tables. Email addresses and phone numbers may change, so they are not ideal primary keys.
 
+### Why is the ledger important?
 
+The ledger records both sides of money movements. Debit and credit totals should balance.
 
-This is simple to understand, but it requires handling both tables when working with ledger entries. A shared accounts table could simplify ledger operations and make the account model more consistent.
+Historical ledger records should be protected from modification or deletion. Corrections should use reversal records so that the accounting history remains understandable.
 
+## 7. Indexes and Performance
 
+The project migrations create indexes for important wallet, transfer, and ledger queries. Indexes can speed up searches and pagination, but they use storage and add work to inserts.
 
-### Why are email and other user details not primary keys?
+Query plans should be checked with `EXPLAIN ANALYZE` using representative data. Performance at one million ledger entries still needs to be demonstrated if required by the assignment.
 
+## 8. Remaining Verification
 
+The database now includes user phone and KYC fields, reconciliation tables, risk tables, and transfer-status auditing. The following requirements still need explicit verification or completion:
 
-The database uses a generated `user_id` as the primary key.
+- Confirm transfer types, including top-up, peer transfer, withdrawal, fee, and reversal.
+- Verify idempotency storage and replay behavior against all required cases.
+- Verify that ledger entries cannot be edited or deleted and that all relevant transfers balance.
+- Run the four required transaction-isolation experiments and document actual outputs.
+- Run the concurrent-transfer acceptance test repeatedly.
+- Test reconciliation against deliberate corruption and large datasets.
+- Verify fraud rules, hold behavior, risk explanations, and their performance cost.
+- Add or verify the required large seed-data script and performance tests.
+- Ensure the README explains setup, design choices, trade-offs, and remaining limitations.
 
-
-
-Email addresses and phone numbers can change or may be entered incorrectly. A generated ID is more stable for connecting database records. Email is currently marked unique.
-
-
-
-### Why are ledger entries important?
-
-
-
-A transfer should record both sides of a money movement. The total debit amount must equal the total credit amount.
-
-
-
-Ledger entries should be immutable. If a completed transfer needs correction, a new reversal transfer should be created instead of editing or deleting old entries.
-
-
-
-The current schema does not yet enforce ledger immutability or all transfer-balancing rules at the database level.
-
-
-
-## 7. Indexes
-
-
-
-The current schema includes indexes for:
-
-
-
-* Finding outgoing transfers by wallet and creation time.
-
-* Finding incoming transfers by wallet and creation time.
-
-* Finding ledger entries belonging to a transfer.
-
-* Finding ledger entries for a wallet ordered by creation time.
-
-
-
-These indexes help common queries run faster. However, indexes also use storage and can slow down inserts, so they should be chosen based on actual query needs.
-
-
-
-## 8. Remaining Work
-
-
-
-The schema is a starting point. The following items still need to be completed to meet the full assignment requirements:
-
-
-
-* Add phone number and KYC status to users.
-
-* Add transfer types, including top-up, peer transfer, withdrawal, fee and reversal.
-
-* Improve idempotency to be unique per user and store the request hash and saved response.
-
-* Enforce balanced ledger entries and prevent ledger updates and deletions.
-
-* Add transfer status audit logs.
-
-* Add reconciliation reports and fraud-related tables.
-
-* Add tests that verify these rules.
-
-
-
-The migrations should be updated and tested against an empty database before the project is considered complete.
-
-
-
+The schema and migration files should be checked together before claiming that every assignment requirement is complete.

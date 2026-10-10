@@ -1,0 +1,64 @@
+
+name: Wallet Ledger Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: wallet_db
+          POSTGRES_USER: wallet_user
+          POSTGRES_PASSWORD: wallet_dev_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U wallet_user -d wallet_db"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://wallet_user:wallet_dev_password@localhost:5432/wallet_db
+      ADMIN_API_TOKEN: ci-test-admin-token
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
+      - name: Apply database migrations
+        run: |
+          for migration in migrations/*.sql; do
+            echo "Applying $migration"
+            psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$migration"
+          done
+
+      - name: Prepare test balances
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "SELECT fund_wallet('ci-seed-alice', 1, 70000, 'INR');"
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "SELECT fund_wallet('ci-seed-bob', 2, 30000, 'INR');"
+
+      - name: Run automated tests
+        run: python -m pytest -v
