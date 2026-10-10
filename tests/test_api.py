@@ -6,7 +6,6 @@ from fastapi.testclient import TestClient
 from app.db import get_connection
 from app.main import app
 
-
 client = TestClient(app)
 
 
@@ -120,7 +119,6 @@ def test_repeated_transfer_uses_same_transfer():
     key = f"test-idempotency-{uuid4().hex}"
 
     payload = {
-        "idempotency_key": key,
         "source_wallet_id": sender,
         "destination_wallet_id": receiver,
         "amount_minor": 100,
@@ -128,16 +126,17 @@ def test_repeated_transfer_uses_same_transfer():
     }
 
     responses = [
-        client.post("/transfers", json=payload, headers={"Idempotency-Key": key})
+        client.post(
+            "/transfers",
+            json=payload,
+            headers={"Idempotency-Key": key},
+        )
         for _ in range(5)
     ]
 
     assert all(response.status_code == 200 for response in responses)
 
-    transfer_ids = [
-        response.json()["transfer_id"]
-        for response in responses
-    ]
+    transfer_ids = [response.json()["transfer_id"] for response in responses]
     assert len(set(transfer_ids)) == 1
 
     with get_connection() as conn:
@@ -160,18 +159,25 @@ def test_idempotency_key_with_different_amount_returns_422():
     key = f"test-idempotency-mismatch-{uuid4().hex}"
 
     payload = {
-        "idempotency_key": key,
         "source_wallet_id": sender,
         "destination_wallet_id": receiver,
         "amount_minor": 100,
         "currency": "INR",
     }
 
-    first_response = client.post("/transfers", json=payload, headers={"Idempotency-Key": key})
+    first_response = client.post(
+        "/transfers",
+        json=payload,
+        headers={"Idempotency-Key": key},
+    )
     assert first_response.status_code == 200
 
     changed_payload = {**payload, "amount_minor": 200}
-    second_response = client.post("/transfers", json=changed_payload)
+    second_response = client.post(
+        "/transfers",
+        json=changed_payload,
+        headers={"Idempotency-Key": key},
+    )
 
     assert second_response.status_code == 422
     assert get_balance(sender) == 900
@@ -190,7 +196,7 @@ def test_completed_transfers_have_balanced_ledger_entries():
                     SUM(
                         CASE
                             WHEN le.entry_type = 'debit'
-                                THEN le.amount_minor
+                            THEN le.amount_minor
                             ELSE -le.amount_minor
                         END
                     ),
@@ -206,7 +212,7 @@ def test_completed_transfers_have_balanced_ledger_entries():
                     SUM(
                         CASE
                             WHEN le.entry_type = 'debit'
-                                THEN le.amount_minor
+                            THEN le.amount_minor
                             ELSE -le.amount_minor
                         END
                     ),
@@ -234,9 +240,7 @@ def test_wallet_statement_returns_transactions_newest_first():
     )
     assert response.status_code == 200
 
-    statement = client.get(
-        f"/wallets/{sender}/statement?limit=10&offset=0"
-    )
+    statement = client.get(f"/wallets/{sender}/statement?limit=10&offset=0")
     assert statement.status_code == 200
 
     data = statement.json()
@@ -249,8 +253,7 @@ def test_wallet_statement_returns_transactions_newest_first():
     assert timestamps == sorted(timestamps, reverse=True)
 
     assert any(
-        item["entry_type"] == "debit"
-        and item["amount_minor"] == 100
+        item["entry_type"] == "debit" and item["amount_minor"] == 100
         for item in transactions
     )
 
@@ -259,11 +262,11 @@ def test_wallet_statement_pagination():
     sender, receiver = create_test_wallets()
 
     for _ in range(3):
+        key = f"statement-page-{uuid4().hex}"
         response = client.post(
             "/transfers",
-            headers={"Idempotency-Key": f"statement-page-{uuid4().hex}"},
+            headers={"Idempotency-Key": key},
             json={
-                "idempotency_key": f"statement-page-{uuid4().hex}",
                 "source_wallet_id": sender,
                 "destination_wallet_id": receiver,
                 "amount_minor": 10,
@@ -272,12 +275,8 @@ def test_wallet_statement_pagination():
         )
         assert response.status_code == 200
 
-    first_page = client.get(
-        f"/wallets/{sender}/statement?limit=2&offset=0"
-    )
-    second_page = client.get(
-        f"/wallets/{sender}/statement?limit=2&offset=2"
-    )
+    first_page = client.get(f"/wallets/{sender}/statement?limit=2&offset=0")
+    second_page = client.get(f"/wallets/{sender}/statement?limit=2&offset=2")
 
     assert first_page.status_code == 200
     assert second_page.status_code == 200
@@ -290,33 +289,59 @@ def test_wallet_statement_pagination():
     assert len(first_data["transactions"]) == 2
     assert len(second_data["transactions"]) == 2
 
-    first_ids = {
-        item["ledger_entry_id"]
-        for item in first_data["transactions"]
-    }
-    second_ids = {
-        item["ledger_entry_id"]
-        for item in second_data["transactions"]
-    }
+    first_ids = {item["ledger_entry_id"] for item in first_data["transactions"]}
+    second_ids = {item["ledger_entry_id"] for item in second_data["transactions"]}
 
     assert first_ids.isdisjoint(second_ids)
 
 
 def test_wallet_statement_rejects_invalid_pagination():
-    assert client.get(
-        "/wallets/1/statement?limit=0"
-    ).status_code == 422
-
-    assert client.get(
-        "/wallets/1/statement?limit=101"
-    ).status_code == 422
-
-    assert client.get(
-        "/wallets/1/statement?offset=-1"
-    ).status_code == 422
+    assert client.get("/wallets/1/statement?limit=0").status_code == 422
+    assert client.get("/wallets/1/statement?limit=101").status_code == 422
+    assert client.get("/wallets/1/statement?offset=-1").status_code == 422
 
 
 def test_wallet_statement_missing_wallet():
     response = client.get("/wallets/999999/statement")
     assert response.status_code == 404
     assert response.json()["detail"] == "Wallet not found"
+
+
+def test_reconciliation_endpoint_returns_result():
+    """Check that reconciliation runs and returns a valid summary."""
+    response = client.post("/admin/reconciliation/run")
+
+    assert response.status_code == 200
+
+    data = response.json()
+    assert isinstance(data["run_id"], int)
+    assert data["status"] in ("completed", "failed")
+    assert isinstance(data["checks_passed"], int)
+    assert isinstance(data["issues_found"], int)
+    assert data["checks_passed"] >= 0
+    assert data["issues_found"] >= 0
+    assert data["started_at"] is not None
+    assert data["finished_at"] is not None
+
+
+def test_reconciliation_runs_are_saved_in_database():
+    """Check that the reconciliation endpoint saves its run record."""
+    response = client.post("/admin/reconciliation/run")
+    assert response.status_code == 200
+
+    run_id = response.json()["run_id"]
+
+    with get_connection() as conn:
+        row = conn.execute(
+            """
+            SELECT status, checks_passed, issues_found
+            FROM reconciliation_runs
+            WHERE run_id = %s
+            """,
+            (run_id,),
+        ).fetchone()
+
+    assert row is not None
+    assert row[0] == response.json()["status"]
+    assert row[1] == response.json()["checks_passed"]
+    assert row[2] == response.json()["issues_found"]

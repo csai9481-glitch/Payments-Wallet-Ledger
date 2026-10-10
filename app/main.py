@@ -1,4 +1,3 @@
-
 from typing import Annotated
 
 from fastapi import FastAPI, Header, HTTPException, Query
@@ -9,8 +8,8 @@ from app.db import get_connection
 
 app = FastAPI(
     title="Payments-Grade Wallet Ledger",
-    description="A simple API for wallet balances, statements, and transfers.",
-    version="1.1.0",
+    description="A wallet ledger API for balances, statements, transfers, and reconciliation.",
+    version="1.2.0",
 )
 
 
@@ -153,7 +152,10 @@ def get_wallet_statement(
 @app.post("/transfers")
 def create_transfer(
     request: TransferRequest,
-    idempotency_key: Annotated[str, Header(alias="Idempotency-Key", min_length=1, max_length=255)],
+    idempotency_key: Annotated[
+        str,
+        Header(alias="Idempotency-Key", min_length=1, max_length=255),
+    ],
 ):
     try:
         with get_connection() as conn:
@@ -199,4 +201,55 @@ def create_transfer(
         raise HTTPException(
             status_code=500,
             detail="Transfer could not be completed",
+        )
+
+
+@app.post("/admin/reconciliation/run")
+def run_reconciliation():
+    try:
+        with get_connection() as conn:
+            row = conn.execute("SELECT run_reconciliation()").fetchone()
+
+            if row is None or row[0] is None:
+                raise HTTPException(
+                    status_code=500,
+                    detail="Reconciliation did not return a run ID",
+                )
+
+            run_id = row[0]
+            result = conn.execute(
+                """
+                SELECT
+                    status,
+                    checks_passed,
+                    issues_found,
+                    started_at,
+                    finished_at
+                FROM reconciliation_runs
+                WHERE run_id = %s
+                """,
+                (run_id,),
+            ).fetchone()
+
+            if result is None:
+                raise HTTPException(
+                    status_code=500,
+                    detail="Reconciliation result was not found",
+                )
+
+        return {
+            "run_id": run_id,
+            "status": result[0],
+            "checks_passed": result[1],
+            "issues_found": result[2],
+            "started_at": result[3].isoformat() if result[3] else None,
+            "finished_at": result[4].isoformat() if result[4] else None,
+        }
+
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(
+            status_code=500,
+            detail="Reconciliation could not be completed",
         )
