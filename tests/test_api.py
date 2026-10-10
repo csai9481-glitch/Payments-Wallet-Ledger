@@ -1,5 +1,5 @@
-
 from uuid import uuid4
+from concurrent.futures import ThreadPoolExecutor
 
 from fastapi.testclient import TestClient
 
@@ -345,3 +345,37 @@ def test_reconciliation_runs_are_saved_in_database():
     assert row[0] == response.json()["status"]
     assert row[1] == response.json()["checks_passed"]
     assert row[2] == response.json()["issues_found"]
+
+
+def test_concurrent_transfers_do_not_overspend():
+    """Concurrent transfers must never spend more than the available balance."""
+    sender, receiver = create_test_wallets()
+
+    def send_transfer(index):
+        return client.post(
+            "/transfers",
+            json={
+                "source_wallet_id": sender,
+                "destination_wallet_id": receiver,
+                "amount_minor": 200,
+                "currency": "INR",
+            },
+            headers={"Idempotency-Key": f"concurrent-{uuid4().hex}-{index}"},
+        )
+
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        responses = list(executor.map(send_transfer, range(10)))
+
+    successful = [
+        response for response in responses if response.status_code == 200
+    ]
+
+    assert len(successful) == 5, [
+        (response.status_code, response.text) for response in responses
+    ]
+
+    assert get_balance(sender) == 0
+    assert get_balance(receiver) == 1000
+
+    transfer_ids = [response.json()["transfer_id"] for response in successful]
+    assert len(set(transfer_ids)) == 5
