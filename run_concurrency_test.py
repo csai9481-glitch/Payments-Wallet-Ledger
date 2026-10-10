@@ -2,7 +2,7 @@
 import os
 import sys
 import uuid
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import psycopg
 
@@ -11,15 +11,73 @@ DATABASE_URL = os.getenv(
     "postgresql://wallet_user:wallet_dev_password@localhost:5432/wallet_db",
 )
 
-SOURCE_WALLET = 3
-DESTINATION_WALLET = 4
-TRANSFER_AMOUNT = 10  # 10 paise
+TRANSFER_AMOUNT = 10
 TOTAL_REQUESTS = 100
-EXPECTED_STARTING_BALANCE = 500  # 500 paise
+STARTING_BALANCE = 500
+MAX_WORKERS = 20
 RUN_PREFIX = f"concurrency-test-{uuid.uuid4().hex}-"
 
 
-def make_transfer(number):
+def create_test_wallets():
+    """Create fresh wallets and fund the sender with 500 paise."""
+    with psycopg.connect(DATABASE_URL) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO users (full_name, email)
+                VALUES (%s, %s)
+                RETURNING user_id
+                """,
+                ("Concurrency Test Sender", f"{RUN_PREFIX}sender@example.com"),
+            )
+            sender_user_id = cur.fetchone()[0]
+
+            cur.execute(
+                """
+                INSERT INTO users (full_name, email)
+                VALUES (%s, %s)
+                RETURNING user_id
+                """,
+                ("Concurrency Test Receiver", f"{RUN_PREFIX}receiver@example.com"),
+            )
+            receiver_user_id = cur.fetchone()[0]
+
+            cur.execute(
+                """
+                INSERT INTO wallets (user_id, currency, status)
+                VALUES (%s, 'INR', 'active')
+                RETURNING wallet_id
+                """,
+                (sender_user_id,),
+            )
+            source_wallet = cur.fetchone()[0]
+
+            cur.execute(
+                """
+                INSERT INTO wallets (user_id, currency, status)
+                VALUES (%s, 'INR', 'active')
+                RETURNING wallet_id
+                """,
+                (receiver_user_id,),
+            )
+            destination_wallet = cur.fetchone()[0]
+
+            cur.execute(
+                "SELECT fund_wallet(%s, %s, %s, %s)",
+                (
+                    f"{RUN_PREFIX}funding",
+                    source_wallet,
+                    STARTING_BALANCE,
+                    "INR",
+                ),
+            )
+            funding_id = cur.fetchone()[0]
+
+    return source_wallet, destination_wallet, funding_id
+
+
+def make_transfer(number, source_wallet, destination_wallet):
+    """Run one transfer and return its recorded status."""
     key = f"{RUN_PREFIX}{number:03d}"
 
     try:
@@ -29,140 +87,91 @@ def make_transfer(number):
                     "SELECT transfer_money(%s, %s, %s, %s, %s)",
                     (
                         key,
-                        SOURCE_WALLET,
-                        DESTINATION_WALLET,
+                        source_wallet,
+                        destination_wallet,
                         TRANSFER_AMOUNT,
                         "INR",
                     ),
                 )
                 transfer_id = cur.fetchone()[0]
 
-        return True, transfer_id
+                cur.execute(
+                    """
+                    SELECT status
+                    FROM transfers
+                    WHERE transfer_id = %s
+                    """,
+                    (transfer_id,),
+                )
+                status = cur.fetchone()[0]
+
+        return {
+            "number": number,
+            "status": status,
+            "transfer_id": transfer_id,
+            "error": None,
+        }
 
     except psycopg.Error as error:
-        message = str(error).splitlines()[0]
-        return False, message
+        return {
+            "number": number,
+            "status": "rejected",
+            "transfer_id": None,
+            "error": str(error).splitlines()[0],
+        }
 
 
-def get_balances(cur):
-    cur.execute(
-        """
-        SELECT wallet_id, balance_minor
-        FROM wallet_balances
-        WHERE wallet_id IN (%s, %s)
-        ORDER BY wallet_id
-        """,
-        (SOURCE_WALLET, DESTINATION_WALLET),
-    )
-    return cur.fetchall()
-
-
-def main():
-    print("Checking test wallets before running...")
-
+def get_results(source_wallet, destination_wallet):
+    """Read transfer statuses, balances, and ledger integrity."""
     with psycopg.connect(DATABASE_URL) as conn:
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT wallet_id, status, currency
-                FROM wallets
-                WHERE wallet_id IN (%s, %s)
-                ORDER BY wallet_id
+                SELECT status, COUNT(*)
+                FROM transfers
+                WHERE idempotency_key LIKE %s
+                GROUP BY status
                 """,
-                (SOURCE_WALLET, DESTINATION_WALLET),
+                (RUN_PREFIX + "%",),
             )
-            wallets = cur.fetchall()
-            balances = get_balances(cur)
-
-    if len(wallets) != 2:
-        print("FAIL: Both test wallets must exist.")
-        return 1
-
-    if any(status != "active" or currency != "INR"
-           for _, status, currency in wallets):
-        print("FAIL: Both test wallets must be active INR wallets.")
-        return 1
-
-    expected_wallet_ids = [SOURCE_WALLET, DESTINATION_WALLET]
-    if [wallet_id for wallet_id, _ in balances] != expected_wallet_ids:
-        print("FAIL: Could not read both wallet balances.")
-        return 1
-
-    source_balance = balances[0][1]
-    destination_balance = balances[1][1]
-
-    # The receiver starts at zero so this run's results are easy to verify.
-    if destination_balance != 0:
-        print(
-            f"FAIL: Receiver wallet {DESTINATION_WALLET} has "
-            f"{destination_balance} paise; expected 0."
-        )
-        print("No money was changed. Review the test wallet first.")
-        return 1
-
-    # Fund only the difference needed to bring the sender to 500 paise.
-    if source_balance > EXPECTED_STARTING_BALANCE:
-        print(
-            f"FAIL: Sender has {source_balance} paise, more than "
-            f"the expected {EXPECTED_STARTING_BALANCE} paise."
-        )
-        print("No money was changed.")
-        return 1
-
-    amount_to_fund = EXPECTED_STARTING_BALANCE - source_balance
-
-    if amount_to_fund > 0:
-        funding_key = f"{RUN_PREFIX}funding"
-
-        with psycopg.connect(DATABASE_URL) as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    "SELECT fund_wallet(%s, %s, %s, %s)",
-                    (
-                        funding_key,
-                        SOURCE_WALLET,
-                        amount_to_fund,
-                        "INR",
-                    ),
-                )
-                funding_id = cur.fetchone()[0]
-
-        print(
-            f"Funded sender with {amount_to_fund} paise "
-            f"(funding ID {funding_id})."
-        )
-
-    with psycopg.connect(DATABASE_URL) as conn:
-        with conn.cursor() as cur:
-            balances = get_balances(cur)
-
-    if balances != [
-        (SOURCE_WALLET, EXPECTED_STARTING_BALANCE),
-        (DESTINATION_WALLET, 0),
-    ]:
-        print(f"FAIL: Unexpected starting balances: {balances}")
-        return 1
-
-    print(f"Run prefix: {RUN_PREFIX}")
-    print(f"Sending {TOTAL_REQUESTS} concurrent transfers...")
-
-    with ThreadPoolExecutor(max_workers=20) as executor:
-        results = list(
-            executor.map(make_transfer, range(1, TOTAL_REQUESTS + 1))
-        )
-
-    successful = sum(1 for ok, _ in results if ok)
-    rejected = TOTAL_REQUESTS - successful
-
-    with psycopg.connect(DATABASE_URL) as conn:
-        with conn.cursor() as cur:
-            balances = get_balances(cur)
+            status_counts = dict(cur.fetchall())
 
             cur.execute(
-                "SELECT COUNT(*) FROM transfers WHERE idempotency_key LIKE %s",
+                """
+                SELECT wallet_id, balance_minor
+                FROM wallet_balances
+                WHERE wallet_id IN (%s, %s)
+                """,
+                (source_wallet, destination_wallet),
+            )
+            balances = dict(cur.fetchall())
+
+            cur.execute(
+                """
+                SELECT COUNT(*)
+                FROM transfers
+                WHERE idempotency_key LIKE %s
+                """,
                 (RUN_PREFIX + "%",),
             )
             recorded_transfers = cur.fetchone()[0]
+
+            # Completed transfers must have exactly two balanced entries.
+            cur.execute(
+                """
+                SELECT COUNT(*)
+                FROM transfers t
+                WHERE t.idempotency_key LIKE %s
+                  AND t.status = 'completed'
+                  AND (
+                      SELECT COUNT(*)
+                      FROM ledger_entries le
+                      WHERE le.transfer_id = t.transfer_id
+                  ) <> 2
+                """,
+                (RUN_PREFIX + "%",),
+            )
+            completed_wrong_entry_count = cur.fetchone()[0]
 
             cur.execute(
                 """
@@ -173,49 +182,163 @@ def main():
                     JOIN ledger_entries le
                       ON le.transfer_id = t.transfer_id
                     WHERE t.idempotency_key LIKE %s
+                      AND t.status = 'completed'
                     GROUP BY t.transfer_id
-                    HAVING COUNT(le.ledger_entry_id) <> 2
-                       OR SUM(
-                           CASE
-                               WHEN le.entry_type = 'credit'
-                                   THEN le.amount_minor
-                               WHEN le.entry_type = 'debit'
-                                   THEN -le.amount_minor
-                               ELSE 0
-                           END
-                       ) <> 0
+                    HAVING SUM(
+                        CASE
+                            WHEN le.entry_type = 'credit'
+                                THEN le.amount_minor
+                            WHEN le.entry_type = 'debit'
+                                THEN -le.amount_minor
+                            ELSE 0
+                        END
+                    ) <> 0
+                    OR SUM(
+                        CASE
+                            WHEN le.amount_minor < 0 THEN 1
+                            ELSE 0
+                        END
+                    ) > 0
                 ) AS unbalanced
                 """,
                 (RUN_PREFIX + "%",),
             )
-            unbalanced_transfers = cur.fetchone()[0]
+            unbalanced_completed = cur.fetchone()[0]
 
-    expected_balances = [
-        (SOURCE_WALLET, 0),
-        (DESTINATION_WALLET, EXPECTED_STARTING_BALANCE),
-    ]
+            # Held transfers must not move money.
+            cur.execute(
+                """
+                SELECT COUNT(*)
+                FROM transfers t
+                WHERE t.idempotency_key LIKE %s
+                  AND t.status = 'held'
+                  AND EXISTS (
+                      SELECT 1
+                      FROM ledger_entries le
+                      WHERE le.transfer_id = t.transfer_id
+                  )
+                """,
+                (RUN_PREFIX + "%",),
+            )
+            held_with_entries = cur.fetchone()[0]
+
+            # Compare each wallet's balance with its actual ledger.
+            cur.execute(
+                """
+                SELECT
+                    w.wallet_id,
+                    COALESCE(
+                        SUM(
+                            CASE
+                                WHEN le.entry_type = 'credit'
+                                    THEN le.amount_minor
+                                WHEN le.entry_type = 'debit'
+                                    THEN -le.amount_minor
+                                ELSE 0
+                            END
+                        ),
+                        0
+                    ) AS ledger_balance
+                FROM wallets w
+                LEFT JOIN ledger_entries le
+                    ON le.wallet_id = w.wallet_id
+                WHERE w.wallet_id IN (%s, %s)
+                GROUP BY w.wallet_id
+                """,
+                (source_wallet, destination_wallet),
+            )
+            ledger_balances = dict(cur.fetchall())
+
+    return (
+        status_counts,
+        balances,
+        ledger_balances,
+        recorded_transfers,
+        completed_wrong_entry_count,
+        unbalanced_completed,
+        held_with_entries,
+    )
+
+
+def main():
+    print("Creating fresh concurrency-test wallets...")
+    source_wallet, destination_wallet, funding_id = create_test_wallets()
+
+    print(f"Sender wallet: {source_wallet}")
+    print(f"Receiver wallet: {destination_wallet}")
+    print(f"Funding record: {funding_id}")
+    print(f"Starting balance: {STARTING_BALANCE} paise")
+    print(f"Each transfer: {TRANSFER_AMOUNT} paise")
+    print(f"Concurrent requests: {TOTAL_REQUESTS}")
+    print(f"Worker threads: {MAX_WORKERS}")
+    print("\nSending requests...")
+
+    results = []
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+        futures = [
+            executor.submit(
+                make_transfer, number, source_wallet, destination_wallet
+            )
+            for number in range(1, TOTAL_REQUESTS + 1)
+        ]
+        for future in as_completed(futures):
+            results.append(future.result())
+
+    status_counts, balances, ledger_balances, recorded, wrong_count, unbalanced, held_entries = (
+        get_results(source_wallet, destination_wallet)
+    )
+
+    completed = status_counts.get("completed", 0)
+    held = status_counts.get("held", 0)
+    pending = status_counts.get("pending", 0)
+    failed = status_counts.get("failed", 0)
+    rejected = sum(1 for result in results if result["status"] == "rejected")
+
+    expected_sender_balance = STARTING_BALANCE - completed * TRANSFER_AMOUNT
+    expected_receiver_balance = completed * TRANSFER_AMOUNT
 
     print("\n--- Concurrency Test Results ---")
-    print(f"Successful transfers: {successful}")
-    print(f"Rejected requests: {rejected}")
-    print(f"Recorded transfers: {recorded_transfers}")
-    print(f"Wallet balances (wallet_id, paise): {balances}")
-    print(f"Unbalanced transfers: {unbalanced_transfers}")
+    print(f"Completed transfers: {completed}")
+    print(f"Held transfers: {held}")
+    print(f"Pending transfers: {pending}")
+    print(f"Failed transfers: {failed}")
+    print(f"Requests with database errors: {rejected}")
+    print(f"Recorded transfers: {recorded}")
+    print(f"Final wallet balances: {balances}")
+    print(f"Ledger balances: {ledger_balances}")
+    print(f"Completed transfers with wrong entry count: {wrong_count}")
+    print(f"Unbalanced completed transfers: {unbalanced}")
+    print(f"Held transfers with ledger entries: {held_entries}")
+
+    expected_balances = {
+        source_wallet: expected_sender_balance,
+        destination_wallet: expected_receiver_balance,
+    }
 
     passed = (
-        successful == 50
-        and rejected == 50
-        and recorded_transfers == 50
+        len(results) == TOTAL_REQUESTS
+        and rejected == 0
+        and recorded == TOTAL_REQUESTS
+        and pending == 0
+        and failed == 0
+        and completed + held == TOTAL_REQUESTS
+        and completed <= STARTING_BALANCE // TRANSFER_AMOUNT
         and balances == expected_balances
-        and unbalanced_transfers == 0
+        and ledger_balances == expected_balances
+        and wrong_count == 0
+        and unbalanced == 0
+        and held_entries == 0
+        and expected_sender_balance + expected_receiver_balance
+            == STARTING_BALANCE
     )
 
     if passed:
-        print("\nPASS: All concurrency checks passed.")
+        print("\nPASS: Concurrency, balance, and ledger checks passed.")
+        print("Risk rules remained enabled.")
         return 0
 
-    print("\nFAIL: One or more concurrency checks did not pass.")
-    print("Inspect the results before attempting another run.")
+    print("\nFAIL: One or more checks did not pass.")
+    print("Keep all database records and share this output for investigation.")
     return 1
 
 
