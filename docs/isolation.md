@@ -1,8 +1,8 @@
-\# Database Isolation Experiments
+# Database Isolation Experiments
 
 
 
-\## 1. Purpose
+## 1. Purpose
 
 
 
@@ -10,15 +10,15 @@ This document explains how PostgreSQL transaction isolation helps protect wallet
 
 
 
-The experiments use separate temporary tables named `isolation\_demo` and `isolation\_demo\_detail`. They do not modify the real wallet balances.
+The experiments use separate temporary tables named `isolation_demo` and `isolation_demo_detail`. They do not modify the real wallet balances.
 
 
 
-\## 2. Read Committed
+## 2. Read Committed
 
 
 
-\### Steps
+### Steps
 
 
 
@@ -32,19 +32,19 @@ The experiments use separate temporary tables named `isolation\_demo` and `isola
 
 
 
-\### Observed result
+### Observed result
 
 
 
-\- First read in Session A: `100`.
+- First read in Session A: `100`.
 
-\- Session B updated and committed: `200`.
+- Session B updated and committed: `200`.
 
-\- Second read in Session A: `200`.
+- Second read in Session A: `200`.
 
 
 
-\### Conclusion
+### Conclusion
 
 
 
@@ -52,11 +52,11 @@ Read Committed takes a fresh snapshot for each statement. Session A saw Session 
 
 
 
-\## 3. Repeatable Read
+## 3. Repeatable Read
 
 
 
-\### Steps
+### Steps
 
 
 
@@ -70,19 +70,19 @@ Read Committed takes a fresh snapshot for each statement. Session A saw Session 
 
 
 
-\### Observed result
+### Observed result
 
 
 
-\- First read in Session A: `200`.
+- First read in Session A: `200`.
 
-\- Session B committed the value `300`.
+- Session B committed the value `300`.
 
-\- Second read in Session A: `200`.
+- Second read in Session A: `200`.
 
 
 
-\### Conclusion
+### Conclusion
 
 
 
@@ -90,11 +90,11 @@ Repeatable Read keeps a consistent snapshot for the transaction. Session A conti
 
 
 
-\## 4. Serializable
+## 4. Serializable
 
 
 
-\### Steps
+### Steps
 
 
 
@@ -110,7 +110,7 @@ Repeatable Read keeps a consistent snapshot for the transaction. Session A conti
 
 
 
-\### Observed result
+### Observed result
 
 
 
@@ -126,7 +126,7 @@ The failed transaction was rolled back.
 
 
 
-\### Conclusion
+### Conclusion
 
 
 
@@ -134,15 +134,15 @@ Serializable prevents conflicting transactions from both succeeding when their c
 
 
 
-\## 5. Repeatable Read with a JOIN
+## 5. Repeatable Read with a JOIN
 
 
 
-\### Steps
+### Steps
 
 
 
-1\. Created a second temporary table named `isolation\_demo\_detail`.
+1\. Created a second temporary table named `isolation_demo_detail`.
 
 2\. Session A started a Repeatable Read transaction.
 
@@ -154,7 +154,7 @@ Serializable prevents conflicting transactions from both succeeding when their c
 
 
 
-\### Observed result
+### Observed result
 
 
 
@@ -174,7 +174,7 @@ Session B committed changes to both tables, but Session A continued seeing its e
 
 
 
-\### Conclusion
+### Conclusion
 
 
 
@@ -182,7 +182,7 @@ Repeatable Read provides a consistent view across the tables in the JOIN for the
 
 
 
-\## 6. Concurrent Wallet Transfer Experiment
+## 6. Concurrent Wallet Transfer Experiment
 
 
 
@@ -210,7 +210,7 @@ A separate test used sender wallet 3 and receiver wallet 4. The sender was funde
 
 
 
-\### Conclusion
+### Conclusion
 
 
 
@@ -222,7 +222,7 @@ This test demonstrates the behavior of the locked implementation. It does not in
 
 
 
-\## 7. Isolation and Locking Decisions
+## 7. Isolation and Locking Decisions
 
 
 
@@ -242,7 +242,7 @@ Read Committed can be suitable for a transfer when explicit row locks and transa
 
 
 
-\## 8. Limitations and Remaining Tests
+## 8. Limitations and Remaining Tests
 
 
 
@@ -254,13 +254,13 @@ Further assignment acceptance tests are still required:
 
 
 
-\- Repeat the concurrent-transfer test 20 times.
+- Repeat the concurrent-transfer test 20 times.
 
-\- Test idempotency under concurrent requests using the same key.
+- Test idempotency under concurrent requests using the same key.
 
-\- Run reconciliation against deliberately corrupted data.
+- Run reconciliation against deliberately corrupted data.
 
-\- Measure query performance with a large ledger dataset.
+- Measure query performance with a large ledger dataset.
 
 
 

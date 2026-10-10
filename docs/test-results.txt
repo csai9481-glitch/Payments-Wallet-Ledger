@@ -1,0 +1,30 @@
+============================= test session starts =============================
+platform win32 -- Python 3.12.10, pytest-9.1.1, pluggy-1.6.0 -- C:\Users\USER\AppData\Local\Programs\Python\Python312\python.exe
+cachedir: .pytest_cache
+rootdir: C:\Users\USER\Desktop\Payments-Wallet-Ledger
+plugins: anyio-4.14.2, langsmith-0.11.0
+collecting ... collected 21 items
+
+tests/test_api.py::test_home_endpoint PASSED                             [  4%]
+tests/test_api.py::test_health_endpoint PASSED                           [  9%]
+tests/test_api.py::test_alice_wallet_balance PASSED                      [ 14%]
+tests/test_api.py::test_bob_wallet_balance PASSED                        [ 19%]
+tests/test_api.py::test_missing_wallet PASSED                            [ 23%]
+tests/test_api.py::test_repeated_transfer_uses_same_transfer PASSED      [ 28%]
+tests/test_api.py::test_idempotency_key_with_different_amount_returns_422 PASSED [ 33%]
+tests/test_api.py::test_completed_transfers_have_balanced_ledger_entries PASSED [ 38%]
+tests/test_api.py::test_wallet_statement_returns_transactions_newest_first PASSED [ 42%]
+tests/test_api.py::test_wallet_statement_pagination PASSED               [ 47%]
+tests/test_api.py::test_wallet_statement_rejects_invalid_pagination PASSED [ 52%]
+tests/test_api.py::test_wallet_statement_missing_wallet PASSED           [ 57%]
+tests/test_api.py::test_reconciliation_rejects_missing_admin_token PASSED [ 61%]
+tests/test_api.py::test_reconciliation_endpoint_returns_result PASSED    [ 66%]
+tests/test_api.py::test_reconciliation_runs_are_saved_in_database PASSED [ 71%]
+tests/test_api.py::test_concurrent_transfers_do_not_overspend PASSED     [ 76%]
+tests/test_api.py::test_statement_qa_balance PASSED                      [ 80%]
+tests/test_api.py::test_statement_qa_rejects_prompt_injection PASSED     [ 85%]
+tests/test_api.py::test_statement_qa_requires_transfer_id PASSED         [ 90%]
+tests/test_api.py::test_new_risk_flag_gets_explanation PASSED            [ 95%]
+tests/test_reconciliation_integrity.py::test_reconciliation_detects_extra_transfer_ledger_entry PASSED [100%]
+
+============================= 21 passed in 4.93s ==============================
