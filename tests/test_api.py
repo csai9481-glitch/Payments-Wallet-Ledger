@@ -532,3 +532,76 @@ def test_new_risk_flag_gets_explanation():
             "DELETE FROM risk_flags WHERE risk_flag_id = %s",
             (result[0],),
         )
+def test_statement_qa_total_sent():
+    response = client.post(
+        "/users/1/statement/ask",
+        json={
+            "question_type": "total_sent",
+            "question": "How much did I send to user 2?",
+            "recipient_user_id": 2,
+            "days": 365,
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert data["question_type"] == "total_sent"
+    assert isinstance(data["data"]["total_minor"], int)
+    assert data["data"]["total_minor"] >= 0
+    assert isinstance(data["data"]["transfer_ids"], list)
+
+
+def test_statement_qa_total_received():
+    response = client.post(
+        "/users/1/statement/ask",
+        json={
+            "question_type": "total_received",
+            "question": "How much money did I receive?",
+            "days": 365,
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert data["question_type"] == "total_received"
+    assert isinstance(data["data"]["total_minor"], int)
+    assert data["data"]["total_minor"] >= 0
+    assert isinstance(data["data"]["transfer_ids"], list)
+
+
+def test_statement_qa_largest_transfer():
+    response = client.post(
+        "/users/1/statement/ask",
+        json={
+            "question_type": "largest_transfer",
+            "question": "What was my largest transfer?",
+            "days": 365,
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert data["question_type"] == "largest_transfer"
+
+    if data["data"]["transfer_id"] is not None:
+        assert data["data"]["amount_minor"] > 0
+        assert data["data"]["transfer_id"] > 0
+
+
+def test_statement_qa_transfer_count():
+    response = client.post(
+        "/users/1/statement/ask",
+        json={
+            "question_type": "transfer_count",
+            "question": "How many transfers did I make?",
+            "days": 365,
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert data["question_type"] == "transfer_count"
+    assert isinstance(data["data"]["count"], int)
+    assert data["data"]["count"] >= 0
+    assert isinstance(data["data"]["transfer_ids"], list)
+    assert data["data"]["count"] == len(data["data"]["transfer_ids"])

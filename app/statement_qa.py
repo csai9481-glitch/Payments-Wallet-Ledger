@@ -1,4 +1,3 @@
-
 from typing import Literal
 
 from fastapi import APIRouter, HTTPException
@@ -16,9 +15,14 @@ class StatementQuestion(BaseModel):
         "recent_transactions",
         "spending_summary",
         "transfer_status",
+        "total_sent",
+        "total_received",
+        "largest_transfer",
+        "transfer_count",
     ]
     question: str = Field(min_length=1, max_length=500)
     transfer_id: int | None = Field(default=None, gt=0)
+    recipient_user_id: int | None = Field(default=None, gt=0)
     days: int = Field(default=30, ge=1, le=365)
 
 
@@ -36,6 +40,7 @@ BLOCKED_PHRASES = (
 
 def mock_statement_answer(question_type, data):
     """Return a predictable explanation without calling an external LLM."""
+
     if question_type == "balance":
         return (
             f"The user's total wallet balance is "
@@ -54,6 +59,39 @@ def mock_statement_answer(question_type, data):
             f"During the last {data['days']} days, outgoing entries totalled "
             f"{data['debits_minor']} paise and incoming entries totalled "
             f"{data['credits_minor']} paise."
+        )
+
+    if question_type == "total_sent":
+        return (
+            f"During the last {data['days']} days, the user sent "
+            f"{data['total_minor']} paise "
+            f"({data['total_minor'] / 100:.2f} INR)."
+        )
+
+    if question_type == "total_received":
+        return (
+            f"During the last {data['days']} days, the user received "
+            f"{data['total_minor']} paise "
+            f"({data['total_minor'] / 100:.2f} INR)."
+        )
+
+    if question_type == "largest_transfer":
+        if data["transfer_id"] is None:
+            return (
+                f"No completed transfers were found in the last "
+                f"{data['days']} days."
+            )
+        return (
+            f"The largest completed transfer in the last {data['days']} days "
+            f"was {data['amount_minor']} paise "
+            f"({data['amount_minor'] / 100:.2f} INR), "
+            f"with transfer ID {data['transfer_id']}."
+        )
+
+    if question_type == "transfer_count":
+        return (
+            f"The user had {data['count']} completed transfers "
+            f"in the last {data['days']} days."
         )
 
     return (
@@ -166,6 +204,147 @@ def ask_statement_question(
                     "days": request.days,
                     "debits_minor": int(row[0]),
                     "credits_minor": int(row[1]),
+                }
+
+            elif request.question_type == "total_sent":
+                if request.recipient_user_id is None:
+                    raise HTTPException(
+                        status_code=422,
+                        detail="recipient_user_id is required for total_sent",
+                    )
+
+                row = conn.execute(
+                    """
+                    SELECT
+                        COALESCE(SUM(t.amount_minor), 0),
+                        COALESCE(
+                            ARRAY_AGG(
+                                t.transfer_id
+                                ORDER BY t.created_at DESC, t.transfer_id DESC
+                            ),
+                            ARRAY[]::BIGINT[]
+                        )
+                    FROM transfers t
+                    JOIN wallets sw
+                      ON sw.wallet_id = t.source_wallet_id
+                    JOIN wallets dw
+                      ON dw.wallet_id = t.destination_wallet_id
+                    WHERE sw.user_id = %s
+                      AND dw.user_id = %s
+                      AND t.status = 'completed'
+                      AND t.created_at >=
+                          NOW() - (%s * INTERVAL '1 day')
+                    """,
+                    (user_id, request.recipient_user_id, request.days),
+                ).fetchone()
+
+                data = {
+                    "recipient_user_id": request.recipient_user_id,
+                    "days": request.days,
+                    "total_minor": int(row[0]),
+                    "transfer_ids": [int(value) for value in (row[1] or [])],
+                }
+
+            elif request.question_type == "total_received":
+                row = conn.execute(
+                    """
+                    SELECT
+                        COALESCE(SUM(t.amount_minor), 0),
+                        COALESCE(
+                            ARRAY_AGG(
+                                t.transfer_id
+                                ORDER BY t.created_at DESC, t.transfer_id DESC
+                            ),
+                            ARRAY[]::BIGINT[]
+                        )
+                    FROM transfers t
+                    JOIN wallets sw
+                      ON sw.wallet_id = t.source_wallet_id
+                    JOIN wallets dw
+                      ON dw.wallet_id = t.destination_wallet_id
+                    WHERE dw.user_id = %s
+                      AND t.status = 'completed'
+                      AND t.created_at >=
+                          NOW() - (%s * INTERVAL '1 day')
+                    """,
+                    (user_id, request.days),
+                ).fetchone()
+
+                data = {
+                    "days": request.days,
+                    "total_minor": int(row[0]),
+                    "transfer_ids": [int(value) for value in (row[1] or [])],
+                }
+
+            elif request.question_type == "largest_transfer":
+                row = conn.execute(
+                    """
+                    SELECT
+                        t.transfer_id,
+                        t.amount_minor,
+                        t.currency
+                    FROM transfers t
+                    JOIN wallets sw
+                      ON sw.wallet_id = t.source_wallet_id
+                    JOIN wallets dw
+                      ON dw.wallet_id = t.destination_wallet_id
+                    WHERE (sw.user_id = %s OR dw.user_id = %s)
+                      AND t.status = 'completed'
+                      AND t.created_at >=
+                          NOW() - (%s * INTERVAL '1 day')
+                    ORDER BY
+                        t.amount_minor DESC,
+                        t.created_at DESC,
+                        t.transfer_id DESC
+                    LIMIT 1
+                    """,
+                    (user_id, user_id, request.days),
+                ).fetchone()
+
+                if row is None:
+                    data = {
+                        "days": request.days,
+                        "transfer_id": None,
+                        "amount_minor": 0,
+                        "currency": "INR",
+                    }
+                else:
+                    data = {
+                        "days": request.days,
+                        "transfer_id": int(row[0]),
+                        "amount_minor": int(row[1]),
+                        "currency": row[2].strip(),
+                    }
+
+            elif request.question_type == "transfer_count":
+                row = conn.execute(
+                    """
+                    SELECT
+                        COUNT(*),
+                        COALESCE(
+                            ARRAY_AGG(
+                                t.transfer_id
+                                ORDER BY t.created_at DESC, t.transfer_id DESC
+                            ),
+                            ARRAY[]::BIGINT[]
+                        )
+                    FROM transfers t
+                    JOIN wallets sw
+                      ON sw.wallet_id = t.source_wallet_id
+                    JOIN wallets dw
+                      ON dw.wallet_id = t.destination_wallet_id
+                    WHERE (sw.user_id = %s OR dw.user_id = %s)
+                      AND t.status = 'completed'
+                      AND t.created_at >=
+                          NOW() - (%s * INTERVAL '1 day')
+                    """,
+                    (user_id, user_id, request.days),
+                ).fetchone()
+
+                data = {
+                    "days": request.days,
+                    "count": int(row[0]),
+                    "transfer_ids": [int(value) for value in (row[1] or [])],
                 }
 
             else:

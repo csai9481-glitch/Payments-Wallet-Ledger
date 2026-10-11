@@ -242,29 +242,25 @@ Read Committed can be suitable for a transfer when explicit row locks and transa
 
 
 
-## 8. Limitations and Remaining Tests
+## 8. Test Coverage, Evidence, and Remaining Work
 
+The project includes isolation experiments, automated API tests, concurrency testing, and performance measurements. Supporting evidence is recorded in the following files:
 
+- `docs/concurrency-test-results.md` — documents 20 repeated concurrent-transfer test runs.
+- `docs/performance-results.md` — documents query-plan measurements using a separate performance database containing 500,000 transfers and 1,000,000 ledger entries.
+- `docs/test-results.txt` — records test results.
+- `tests/test_api.py` — includes API tests for transfers, idempotency, and statement Q&A.
+- `tests/test_reconciliation_integrity.py` — includes a reconciliation-integrity test.
 
-These experiments demonstrate PostgreSQL's observed behavior with the test rows and transactions used here.
+### Important limitations
 
+- The performance measurements for offset-based and cursor-based pagination did not return equivalent result sets. Their recorded timings should not be treated as a direct, like-for-like speed comparison.
+- The concurrency results demonstrate the observed behavior in the tested scenarios. They do not prove that every possible concurrency issue has been eliminated.
+- The full reconciliation acceptance scenario must be verified separately: use 10,000 transfers, introduce one transfer-amount mismatch, delete one credit ledger entry, change one stored balance, and confirm that reconciliation reports exactly three findings.
+- Any acceptance scenario not explicitly tested should be treated as outstanding rather than assumed to have passed.
 
+### Conclusion
 
-Further assignment acceptance tests are still required:
-
-
-
-- Repeat the concurrent-transfer test 20 times.
-
-- Test idempotency under concurrent requests using the same key.
-
-- Run reconciliation against deliberately corrupted data.
-
-- Measure query performance with a large ledger dataset.
-
-
-
-The experiments do not prove that every possible concurrency issue has been eliminated.
-
+The recorded experiments provide evidence for selected isolation, concurrency, and performance behaviors. Final submission readiness also depends on checking the required reconciliation scenario, reviewing the seed-data requirements, and ensuring all required documentation and demo evidence are included.
 
 
