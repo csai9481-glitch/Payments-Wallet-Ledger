@@ -158,6 +158,8 @@ erDiagram
     WALLETS ||--o{ TRANSFERS : sends
     WALLETS ||--o{ TRANSFERS : receives
     TRANSFERS ||--o{ LEDGER_ENTRIES : records
+    WALLETS ||--o{ WALLET_FUNDINGS : receives
+    WALLET_FUNDINGS ||--o{ LEDGER_ENTRIES : creates
     WALLETS o|--o{ LEDGER_ENTRIES : records
     SYSTEM_ACCOUNTS o|--o{ LEDGER_ENTRIES : records
     RECONCILIATION_RUNS ||--o{ RECONCILIATION_ISSUES : reports
@@ -196,15 +198,31 @@ erDiagram
     LEDGER_ENTRIES {
         bigint ledger_entry_id PK
         bigint transfer_id FK
+        bigint funding_id FK
         bigint wallet_id FK
         bigint system_account_id FK
-        bigint funding_id
         varchar entry_type
         bigint amount_minor
         char currency
         timestamptz created_at
     }
 
+    SYSTEM_ACCOUNTS {
+        bigint system_account_id PK
+        varchar account_name
+        varchar account_type
+        char currency
+        timestamptz created_at
+    }
+    WALLET_FUNDINGS {
+        bigint funding_id PK
+        varchar idempotency_key
+        bigint wallet_id FK
+        bigint amount_minor
+        char currency
+        varchar status
+        timestamptz created_at
+    }
     RECONCILIATION_RUNS {
         bigint run_id PK
         timestamptz started_at
