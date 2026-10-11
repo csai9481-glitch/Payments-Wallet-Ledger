@@ -71,9 +71,19 @@ cd /d C:\Users\USER\Desktop\Payments-Wallet-Ledger
 
 ### Configure the environment
 
-Create a local `.env` file with the environment variables required by the application.
+Open the local environment file:
 
-Set a strong, private admin token using the variable expected by the application configuration. Do not commit `.env` or share the token publicly.
+```cmd
+notepad .env
+```
+
+Make sure it contains this line. Replace the example value with your own long, private token:
+
+```text
+ADMIN_API_TOKEN=replace-with-a-long-random-private-token
+```
+
+Save the file. Do not commit `.env` or share your real token publicly.
 
 ### Start the services
 
