@@ -164,6 +164,47 @@ def test_repeated_transfer_uses_same_transfer():
     assert get_balance(receiver) == 100
 
 
+
+def test_concurrent_same_idempotency_key_uses_one_transfer():
+    """Concurrent retries with one key must create only one transfer."""
+    sender, receiver = create_test_wallets()
+    key = f"test-concurrent-idempotency-{uuid4().hex}"
+
+    payload = {
+        "source_wallet_id": sender,
+        "destination_wallet_id": receiver,
+        "amount_minor": 100,
+        "currency": "INR",
+    }
+
+    def send_transfer():
+        return client.post(
+            "/transfers",
+            json=payload,
+            headers={"Idempotency-Key": key},
+        )
+
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        responses = list(executor.map(lambda _: send_transfer(), range(5)))
+
+    assert all(response.status_code == 200 for response in responses)
+    transfer_ids = [response.json()["transfer_id"] for response in responses]
+    assert len(set(transfer_ids)) == 1
+
+    with get_connection() as conn:
+        count = conn.execute(
+            """
+            SELECT COUNT(*)
+            FROM transfers
+            WHERE idempotency_key = %s
+            """,
+            (key,),
+        ).fetchone()[0]
+
+    assert count == 1
+    assert get_balance(sender) == 900
+    assert get_balance(receiver) == 100
+
 def test_idempotency_key_with_different_amount_returns_422():
     sender, receiver = create_test_wallets()
     key = f"test-idempotency-mismatch-{uuid4().hex}"
