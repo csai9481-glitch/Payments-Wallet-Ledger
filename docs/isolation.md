@@ -256,8 +256,8 @@ The project includes isolation experiments, automated API tests, concurrency tes
 
 - The performance measurements for offset-based and cursor-based pagination did not return equivalent result sets. Their recorded timings should not be treated as a direct, like-for-like speed comparison.
 - The concurrency results demonstrate the observed behavior in the tested scenarios. They do not prove that every possible concurrency issue has been eliminated.
-- The full reconciliation acceptance scenario must be verified separately: use 10,000 transfers, introduce one transfer-amount mismatch, delete one credit ledger entry, change one stored balance, and confirm that reconciliation reports exactly three findings.
-- Any acceptance scenario not explicitly tested should be treated as outstanding rather than assumed to have passed.
+- The full reconciliation acceptance scenario was verified in the isolated `wallet_reconciliation_db`: 10,000 completed transfers and 20,000 ledger entries were created. Reconciliation detected exactly three findings after deliberate corruption: two `transfer_ledger_mismatch` findings and one `wallet_balance_mismatch` finding. The test data was restored, and a subsequent reconciliation run reported zero issues.
+- Any other acceptance scenario not explicitly tested should be treated as outstanding rather than assumed to have passed.
 
 ### Conclusion
 
