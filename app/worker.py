@@ -5,11 +5,11 @@ import traceback
 from app.db import get_connection
 
 INTERVAL = int(os.getenv("RECONCILIATION_INTERVAL_SECONDS", "86400"))
-LOCK_ID = 741852963
 
 def run_reconciliation():
     with get_connection() as conn:
         with conn.transaction():
+            conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
             locked = conn.execute("SELECT pg_try_advisory_xact_lock(%s)", (LOCK_ID,)).fetchone()[0]
             if not locked:
                 print("Reconciliation skipped: lock is held.", flush=True)

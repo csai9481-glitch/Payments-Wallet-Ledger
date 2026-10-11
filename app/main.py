@@ -323,6 +323,7 @@ def run_reconciliation(
 
     try:
         with get_connection() as conn:
+            conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
             row = conn.execute(
                 "SELECT run_reconciliation()"
             ).fetchone()
