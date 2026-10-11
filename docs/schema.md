@@ -274,22 +274,39 @@ Historical ledger records should be protected from modification or deletion. Cor
 
 ## 7. Indexes and Performance
 
-The project migrations create indexes for important wallet, transfer, and ledger queries. Indexes can speed up searches and pagination, but they use storage and add work to inserts.
+The project has been tested with a large synthetic performance dataset.
 
-Query plans should be checked with `EXPLAIN ANALYZE` using representative data. Performance at one million ledger entries still needs to be demonstrated if required by the assignment.
+The verified dataset contains:
+- 1,000 performance users
+- 2,000 performance wallets
+- 100,000 initial seed transfers
+- 400,000 additional scale transfers
+- 500,000 total transfers
+- 1,000,000 ledger entries
 
-## 8. Remaining Verification
+The performance dataset is stored in the separate `wallet_perf_db` database. It is separate from the main application database.
 
-The database now includes user phone and KYC fields, reconciliation tables, risk tables, and transfer-status auditing. The following requirements still need explicit verification or completion:
+Indexes support common queries, including finding transfers by source wallet, finding transfers by destination wallet, and reading ledger entries for a wallet.
 
-- Confirm transfer types, including top-up, peer transfer, withdrawal, fee, and reversal.
-- Verify idempotency storage and replay behavior against all required cases.
-- Verify that ledger entries cannot be edited or deleted and that all relevant transfers balance.
-- Run the four required transaction-isolation experiments and document actual outputs.
-- Run the concurrent-transfer acceptance test repeatedly.
-- Test reconciliation against deliberate corruption and large datasets.
-- Verify fraud rules, hold behavior, risk explanations, and their performance cost.
-- Add or verify the required large seed-data script and performance tests.
-- Ensure the README explains setup, design choices, trade-offs, and remaining limitations.
+The project also includes performance experiments comparing pagination approaches. The OFFSET and cursor-pagination results were not equivalent result sets, so their timings should not be treated as a direct comparison of identical results.
 
-The schema and migration files should be checked together before claiming that every assignment requirement is complete.
+## 8. Verification Status and Remaining Work
+
+The following checks have been completed:
+- All 14 database migrations applied successfully in a fresh temporary database.
+- The automated test suite passed: 27 tests.
+- GitHub Actions completed successfully for the latest recorded run.
+- The performance seed dataset contains 1,000 users, 2,000 wallets, and 100,000 initial transfers.
+- The scale dataset adds 400,000 transfers, bringing the total to 500,000 transfers and 1,000,000 ledger entries.
+- Concurrent transfer tests passed in 20 repeated runs, with no database errors or unbalanced transfers reported.
+- A reconciliation acceptance scenario detected deliberate data inconsistencies. After the test data was restored, reconciliation reported no issues.
+
+The following items still need review or further evidence:
+- Verify every supported transfer type, including top-up, peer transfer, withdrawal, fee, and reversal.
+- Review idempotency behavior for both new requests and repeated requests.
+- Confirm the ledger immutability and balancing guarantees.
+- Add reproducible SQL commands and outputs for the isolation experiments.
+- Review risk-rule coverage, held transfers, and risk explanations.
+- Complete any remaining assignment-specific demo or submission requirements.
+
+Only mark a remaining item as complete after its implementation or test evidence has been checked.

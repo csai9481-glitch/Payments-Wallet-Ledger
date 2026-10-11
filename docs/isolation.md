@@ -1,266 +1,341 @@
-# Database Isolation Experiments
-
-
+# Database Isolation and Concurrency Testing
 
 ## 1. Purpose
 
+This document explains how database transactions behave when multiple sessions access or update the same data.
 
+The experiments use a separate database named `wallet_isolation_lab`. They do not modify the main wallet database or the protected performance, concurrency, and reconciliation databases.
 
-This document explains how PostgreSQL transaction isolation helps protect wallet data when multiple operations happen at the same time.
+The experiments cover:
 
+- Read Committed isolation.
+- Repeatable Read isolation.
+- Serializable isolation.
+- Concurrent wallet transfers.
+- Database locking decisions.
+- Performance and reconciliation evidence.
 
+## 1.1 Reproducible SQL Lab
 
-The experiments use separate temporary tables named `isolation_demo` and `isolation_demo_detail`. They do not modify the real wallet balances.
+### Connect to the isolated lab database
 
+Open two separate PowerShell or Command Prompt windows. Run the following command in each window:
 
+```powershell
+docker exec -it wallet_postgres psql -U wallet_user -d wallet_isolation_lab
+```
 
-## 2. Read Committed
+Keep both database sessions open. Call them **Session A** and **Session B**.
 
+Run the following setup command in either session:
 
+```sql
+CREATE TABLE IF NOT EXISTS isolation_demo (
+    id INTEGER PRIMARY KEY,
+    amount INTEGER NOT NULL,
+    note TEXT NOT NULL
+);
 
-### Steps
+INSERT INTO isolation_demo (id, amount, note)
+VALUES (1, 100, 'Original note')
+ON CONFLICT (id) DO NOTHING;
 
+INSERT INTO isolation_demo (id, amount, note)
+VALUES (2, 100, 'Serializable test')
+ON CONFLICT (id) DO NOTHING;
 
+SELECT * FROM isolation_demo ORDER BY id;
+```
 
-1\. Created a test row with `amount = 100`.
+The setup creates a small table for testing transaction isolation. Existing rows are not overwritten when the setup is run again.
 
-2\. Session A started a transaction and read the amount.
+### Experiment A: Read Committed
 
-3\. Session B updated the amount to `200` and committed.
+Read Committed allows a transaction to see changes committed by other transactions when it runs a new query.
 
-4\. Session A read the same row again without ending its transaction.
+**Session A — run first:**
 
+```sql
+BEGIN ISOLATION LEVEL READ COMMITTED;
 
+SELECT amount
+FROM isolation_demo
+WHERE id = 1;
+```
 
-### Observed result
+Note the amount returned.
 
+**Session B — run after Session A's first query:**
 
+```sql
+UPDATE isolation_demo
+SET amount = amount + 50
+WHERE id = 1;
 
-- First read in Session A: `100`.
+COMMIT;
+```
 
-- Session B updated and committed: `200`.
+**Session A — run after Session B commits:**
 
-- Second read in Session A: `200`.
+```sql
+SELECT amount
+FROM isolation_demo
+WHERE id = 1;
 
+COMMIT;
+```
 
+**Expected result:** Session A can see the newly committed amount in its second query. For example, if the initial amount was 200, the second query returns 250.
 
-### Conclusion
+This demonstrates Read Committed behavior.
 
+### Experiment B: Repeatable Read
 
+Repeatable Read keeps a consistent snapshot for the transaction. Changes committed by another transaction after the snapshot is established are not visible to later queries in that same transaction.
 
-Read Committed takes a fresh snapshot for each statement. Session A saw Session B's committed change in its second query.
+**Session A — run first:**
 
+```sql
+BEGIN ISOLATION LEVEL REPEATABLE READ;
 
+SELECT amount
+FROM isolation_demo
+WHERE id = 1;
+```
 
-## 3. Repeatable Read
+Note the returned amount.
 
+**Session B — run after Session A's first query:**
 
+```sql
+UPDATE isolation_demo
+SET amount = amount + 50
+WHERE id = 1;
 
-### Steps
+COMMIT;
+```
 
+**Session A — run after Session B commits:**
 
+```sql
+SELECT amount
+FROM isolation_demo
+WHERE id = 1;
 
-1\. Session A started a Repeatable Read transaction.
+COMMIT;
+```
 
-2\. Session A read the amount as `200`.
+**Expected result:** Session A sees the same amount in both queries, provided Session B commits after Session A establishes its snapshot.
 
-3\. Session B changed the amount to `300` and committed.
+A new transaction can see the updated amount.
 
-4\. Session A read the amount again before committing.
+### Experiment C: Serializable
 
+Serializable provides stronger isolation. PostgreSQL can reject a transaction if concurrent changes would make the result inconsistent with a serial execution.
 
+First, prepare the test row in either session:
 
-### Observed result
+```sql
+UPDATE isolation_demo
+SET amount = 100,
+    note = 'Serializable test'
+WHERE id = 2;
+```
 
+Commit the setup:
 
+```sql
+COMMIT;
+```
 
-- First read in Session A: `200`.
+**Session A — run first:**
 
-- Session B committed the value `300`.
+```sql
+BEGIN ISOLATION LEVEL SERIALIZABLE;
 
-- Second read in Session A: `200`.
+SELECT amount
+FROM isolation_demo
+WHERE id = 2;
+```
 
+**Session B — run before Session A updates the row:**
 
+```sql
+BEGIN ISOLATION LEVEL SERIALIZABLE;
 
-### Conclusion
+SELECT amount
+FROM isolation_demo
+WHERE id = 2;
+```
 
+Both sessions should read the row before either session updates it.
 
+**Session A:**
 
-Repeatable Read keeps a consistent snapshot for the transaction. Session A continued seeing the earlier committed value.
+```sql
+UPDATE isolation_demo
+SET amount = amount + 10
+WHERE id = 2;
 
+COMMIT;
+```
 
+**Session B:**
 
-## 4. Serializable
+```sql
+UPDATE isolation_demo
+SET amount = amount + 20
+WHERE id = 2;
 
+COMMIT;
+```
 
+Depending on the transaction schedule, PostgreSQL may reject Session B with a serialization error.
 
-### Steps
+If a transaction fails, run the following in that session before continuing:
 
+```sql
+ROLLBACK;
+```
 
+**Observed result:** A serialization error, including `could not serialize access due to concurrent update`, was observed during the lab experiments.
 
-1\. Two sessions started Serializable transactions.
+This demonstrates that an application must be prepared to roll back and safely retry transactions that fail due to serialization conflicts.
 
-2\. Both sessions read the same row.
+## 2. Read Committed Results
 
-3\. Session A attempted to add `10`.
+The Read Committed experiment demonstrated that a second query can see a change committed by another session while the first transaction remains open.
 
-4\. Session B attempted to add `20`.
+For example:
 
-5\. Session A committed successfully.
+1. Session A reads an amount.
+2. Session B updates the amount and commits.
+3. Session A runs the same query again.
+4. Session A sees the updated amount.
 
+This behavior is useful for many application queries, but balance-changing operations require additional protection against concurrent updates.
 
+## 3. Repeatable Read Results
 
-### Observed result
+The Repeatable Read experiment demonstrated snapshot behavior.
 
+When Session A establishes its snapshot and Session B commits an update afterward, Session A continues to see the original value in subsequent queries within that transaction.
 
+The result depends on the transaction order. Session B must commit after Session A has established its snapshot for this demonstration.
 
-Session A's update succeeded and committed. Session B received this PostgreSQL error:
+## 4. Serializable Results
 
+The Serializable experiment produced a PostgreSQL serialization error during concurrent updates.
 
+The application must treat this as a failed transaction, roll it back, and retry the complete operation when appropriate. It must not assume that every transaction will commit successfully.
 
-`could not serialize access due to concurrent update`
+Serializable isolation is useful for operations that need stronger guarantees, but it may require retries under concurrent load.
 
+## 5. Concurrent Wallet Transfer Experiment
 
+The wallet concurrency test checks that simultaneous transfers do not cause the sender to spend more money than the available balance.
 
-The failed transaction was rolled back.
+The test uses an isolated concurrency database rather than the main wallet database.
 
+### Test setup
 
+- Sender starting balance: 500 paise (₹5.00).
+- Receiver starting balance: 0 paise.
+- Concurrent requests: 100.
+- Workers: 20.
+- Transfer amount: 10 paise per request.
+- Test repetitions: 20.
 
-### Conclusion
+### Results
 
+Across the repeated test runs:
 
+- 50 transfers succeeded per run.
+- 50 transfers were rejected because the sender did not have enough money.
+- 0 database errors were reported.
+- 0 invalid ledger records were reported.
+- Final sender balance: 0 paise.
+- Final receiver balance: 500 paise.
+- The total money transferred matched the sender's original balance.
 
-Serializable prevents conflicting transactions from both succeeding when their combined execution cannot be serialized safely. An application must handle serialization errors and retry eligible transactions.
+These results support the balance-protection behavior under the tested concurrency workload.
 
+See `docs/concurrency-test-results.md` for the detailed results.
 
+## 6. Isolation and Locking Decisions
 
-## 5. Repeatable Read with a JOIN
+The wallet transfer operation uses database transactions and explicit row locking to protect wallet balances.
 
+The main decisions are:
 
+1. Lock the source and destination wallet rows before checking and changing balances.
+2. Acquire wallet locks in ascending wallet ID order to reduce the risk of deadlocks.
+3. Check that the sender has enough available funds before completing the transfer.
+4. Record the transfer and corresponding ledger entries within the transaction.
+5. Commit the transaction only when the operation succeeds.
+6. Roll back the transaction if an error prevents a valid transfer.
 
-### Steps
+Read Committed isolation with explicit wallet row locks is suitable for the tested transfer design because the locks protect the critical balance checks and updates.
 
+## 7. Reconciliation Acceptance Test
 
+The reconciliation acceptance test was run in the separate `wallet_reconciliation_db` database.
 
-1\. Created a second temporary table named `isolation_demo_detail`.
+The test dataset contained:
 
-2\. Session A started a Repeatable Read transaction.
+- 10,000 transfers.
+- 20,000 ledger entries.
 
-3\. Session A joined both tables and read the amount and note.
+Deliberate data corruption was introduced to check whether reconciliation could identify inconsistencies.
 
-4\. Session B increased the amount by `100`, changed the note to `Updated note`, and committed.
+The reconciliation process reported three findings:
 
-5\. Session A repeated the JOIN before committing.
+- Two `transfer_ledger_mismatch` findings.
+- One `wallet_balance_mismatch` finding.
 
+After the test data was restored, reconciliation reported zero issues.
 
+The test demonstrates that reconciliation can identify the tested inconsistencies. It does not prove that every possible type of corruption has been tested.
 
-### Observed result
+See `tests/test_reconciliation_integrity.py` and the reconciliation acceptance-test results for supporting evidence.
 
+## 8. Performance and Additional Evidence
 
+The performance dataset is maintained in the separate `wallet_perf_db` database.
 
-Session A saw the following values on both reads:
+The verified dataset contains:
 
+- 1,000 seed users.
+- 2,000 seed wallets.
+- 100,000 transfers from the initial seed.
+- 400,000 additional transfers from the scale seed.
+- 500,000 transfers in total.
+- 1,000,000 ledger entries.
 
+The OFFSET and cursor-pagination query results were not equivalent in the recorded comparison. Therefore, that comparison should not be treated as proof that both pagination approaches return identical results.
 
-| Amount | Note |
+Related evidence:
 
-|---:|---|
+- `docs/performance-results.md`
+- `docs/concurrency-test-results.md`
+- `docs/test-results.txt`
+- `tests/test_api.py`
+- `tests/test_reconciliation_integrity.py`
 
-| 310 | Original note |
+## 9. Limitations
 
+The experiments cover specific transaction schedules and test cases. They do not prove that every possible concurrency problem or data-integrity failure has been eliminated.
 
+The results depend on the order in which sessions execute and commit their transactions.
 
-Session B committed changes to both tables, but Session A continued seeing its earlier snapshot.
+The performance and concurrency datasets are isolated from the main development database to avoid accidental modification of the normal development data.
 
+A full demo video and any remaining submission-specific requirements should be checked separately before final submission.
 
+## 10. Conclusion
 
-### Conclusion
+The isolation experiments demonstrate how PostgreSQL handles concurrent transactions under Read Committed, Repeatable Read, and Serializable isolation.
 
+The wallet concurrency test supports the use of database transactions and wallet row locks to protect balances under the tested workload. The reconciliation acceptance test demonstrates detection of the deliberately introduced inconsistencies.
 
-
-Repeatable Read provides a consistent view across the tables in the JOIN for the duration of the transaction.
-
-
-
-## 6. Concurrent Wallet Transfer Experiment
-
-
-
-A separate test used sender wallet 3 and receiver wallet 4. The sender was funded with 500 paise, and 100 concurrent requests each attempted to transfer 10 paise.
-
-
-
-| Check | Result |
-
-|---|---:|
-
-| Concurrent requests | 100 |
-
-| Successful transfers | 50 |
-
-| Rejected requests | 50 |
-
-| Recorded transfers | 50 |
-
-| Sender balance after test | 0 paise |
-
-| Receiver balance after test | 500 paise |
-
-| Unbalanced transfers | 0 |
-
-
-
-### Conclusion
-
-
-
-The locked transfer implementation allowed exactly 50 transfers. The remaining requests were rejected because the sender did not have enough funds. The recorded transfers had balanced ledger entries.
-
-
-
-This test demonstrates the behavior of the locked implementation. It does not independently demonstrate a successful overspend race in an implementation without row locks.
-
-
-
-## 7. Isolation and Locking Decisions
-
-
-
-The wallet transfer implementation locks the source and destination wallet rows before checking the source balance and recording the money movement.
-
-
-
-Wallet rows should be locked in ascending wallet ID order to reduce deadlock risk.
-
-
-
-The balance check and ledger writes must occur in the same transaction. This prevents concurrent requests from spending the same available funds after they have obtained the required locks.
-
-
-
-Read Committed can be suitable for a transfer when explicit row locks and transactional balance checks are correctly implemented. Stronger isolation levels can provide additional guarantees but may introduce serialization errors that applications must handle.
-
-
-
-## 8. Test Coverage, Evidence, and Remaining Work
-
-The project includes isolation experiments, automated API tests, concurrency testing, and performance measurements. Supporting evidence is recorded in the following files:
-
-- `docs/concurrency-test-results.md` — documents 20 repeated concurrent-transfer test runs.
-- `docs/performance-results.md` — documents query-plan measurements using a separate performance database containing 500,000 transfers and 1,000,000 ledger entries.
-- `docs/test-results.txt` — records test results.
-- `tests/test_api.py` — includes API tests for transfers, idempotency, and statement Q&A.
-- `tests/test_reconciliation_integrity.py` — includes a reconciliation-integrity test.
-
-### Important limitations
-
-- The performance measurements for offset-based and cursor-based pagination did not return equivalent result sets. Their recorded timings should not be treated as a direct, like-for-like speed comparison.
-- The concurrency results demonstrate the observed behavior in the tested scenarios. They do not prove that every possible concurrency issue has been eliminated.
-- The full reconciliation acceptance scenario was verified in the isolated `wallet_reconciliation_db`: 10,000 completed transfers and 20,000 ledger entries were created. Reconciliation detected exactly three findings after deliberate corruption: two `transfer_ledger_mismatch` findings and one `wallet_balance_mismatch` finding. The test data was restored, and a subsequent reconciliation run reported zero issues.
-- Any other acceptance scenario not explicitly tested should be treated as outstanding rather than assumed to have passed.
-
-### Conclusion
-
-The recorded experiments provide evidence for selected isolation, concurrency, and performance behaviors. Final submission readiness also depends on checking the required reconciliation scenario, reviewing the seed-data requirements, and ensuring all required documentation and demo evidence are included.
-
-
+Together, these experiments provide evidence for the wallet ledger's transaction safety, concurrency handling, and reconciliation behavior within the tested scenarios.
