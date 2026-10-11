@@ -99,21 +99,20 @@ http://127.0.0.1:8000/health
 
 ### Database setup
 
-For a fresh database, start PostgreSQL first:
+On a brand-new PostgreSQL data directory, Docker Compose automatically runs the numbered SQL migration files in `migrations/` in order during database initialization.
 
-```cmd
-docker compose up -d db
-```
-
-Apply the SQL migrations in numerical order, following the database setup instructions and using the configured database credentials. Apply each migration only once to the appropriate database.
-
-Then start the application services:
+Start the services with:
 
 ```cmd
 docker compose up -d --build
 ```
 
-**Important:** Do not blindly rerun all migrations against an existing database. Back up important data before making database changes. The application does not automatically apply all SQL migrations when its containers start.
+Check their status with `docker compose ps`.
+
+**Important:** Initialization scripts run only when the PostgreSQL data directory is empty. Starting services with an existing database does not rerun migrations. Do not delete the database volume or blindly rerun migrations.
+
+The `performance_seed.sql` and `performance_scale.sql` scripts are for a dedicated `wallet_perf_db` database only. Never run them against your normal development database.
+
 
 ## 7. API Endpoints
 

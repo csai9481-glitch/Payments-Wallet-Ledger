@@ -12,6 +12,18 @@ services:
       - "5432:5432"
     volumes:
       - wallet_data:/var/lib/postgresql/data
+      - ./migrations/001_initial_schema.sql:/docker-entrypoint-initdb.d/001_initial_schema.sql:ro
+      - ./migrations/002_seed_data.sql:/docker-entrypoint-initdb.d/002_seed_data.sql:ro
+      - ./migrations/003_wallet_balance_view.sql:/docker-entrypoint-initdb.d/003_wallet_balance_view.sql:ro
+      - ./migrations/004_wallet_funding.sql:/docker-entrypoint-initdb.d/004_wallet_funding.sql:ro
+      - ./migrations/005_funding_function.sql:/docker-entrypoint-initdb.d/005_funding_function.sql:ro
+      - ./migrations/006_transfer_function.sql:/docker-entrypoint-initdb.d/006_transfer_function.sql:ro
+      - ./migrations/007_reconciliation.sql:/docker-entrypoint-initdb.d/007_reconciliation.sql:ro
+      - ./migrations/008_reconciliation_function.sql:/docker-entrypoint-initdb.d/008_reconciliation_function.sql:ro
+      - ./migrations/009_fraud_and_audit.sql:/docker-entrypoint-initdb.d/009_fraud_and_audit.sql:ro
+      - ./migrations/010_fraud_aware_transfers.sql:/docker-entrypoint-initdb.d/010_fraud_aware_transfers.sql:ro
+      - ./migrations/011_admin_release.sql:/docker-entrypoint-initdb.d/011_admin_release.sql:ro
+      - ./migrations/012_risk_flag_explanations.sql:/docker-entrypoint-initdb.d/012_risk_flag_explanations.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U wallet_user -d wallet_db"]
       interval: 5s
